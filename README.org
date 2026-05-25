@@ -1,0 +1,564 @@
+#+title: wjmca - Certificate Authority Operations Manual
+#+author: Organization
+#+date: 2026-05-25
+
+* Overview
+
+wjmca is an internal Public Key Infrastructure (PKI)
+Certificate Authority following industrial best
+practices. It implements a three-tier CA model:
+
+- *Root CA* (offline, Yubikey-protected): Signs only
+  intermediate CA certificates
+- *Intermediate CA* (online): Issues end-entity
+  certificates for services and users
+- *End-entity certificates* (issued by intermediate):
+  For servers, users, and services
+
+This document covers setup, operational procedures,
+security policies, and team roles.
+
+* Table of Contents
+
+- [[#prerequisites][Prerequisites]]
+- [[#initial-setup][Initial Setup]]
+- [[#team-roles-and-workflows][Team Roles and Workflows]]
+- [[#root-ca-operations][Root CA Operations]]
+- [[#intermediate-ca-operations][Intermediate CA Operations]]
+- [[#security-policies][Security Policies]]
+- [[#audit-trail][Audit Trail]]
+- [[#troubleshooting][Troubleshooting]]
+- [[#compliance-and-standards][Compliance and Standards]]
+
+* Prerequisites
+
+Before starting, ensure:
+
+1. *just* is installed - the command runner/task
+   automation tool
+   #+begin_src bash
+   curl --proto '=https' --tlsv1.2 -sSf \
+     https://just.systems/install.sh | bash
+   #+end_src
+
+2. *openssl* (v1.1.1 or later)
+   #+begin_src bash
+   openssl version
+   # Output: OpenSSL 1.1.1 or later
+   #+end_src
+
+3. *pass* password manager - for managing
+   passphrases
+   #+begin_src bash
+   apt-get install pass
+   # or: brew install pass on macOS
+   pass init your-gpg-email@example.org
+   #+end_src
+
+4. *GPG* configured for pass
+   #+begin_src bash
+   gpg --gen-key
+   # Follow prompts to create a GPG key
+   #+end_src
+
+5. For root CA: *Yubikey* with PIV support
+   configured
+
+All team members should verify their setup:
+#+begin_src bash
+cd /home/albin/src/wjmca
+just --list  # Should show all recipes
+#+end_src
+
+* Initial Setup
+
+** Step 1: Clone and Initialize
+
+#+begin_src bash
+cd /home/albin/src/wjmca
+just init-dirs
+#+end_src
+
+This creates the necessary directory structure and
+initializes OpenSSL databases.
+
+** Step 2: Set Up Passphrases (All Team Members)
+
+The intermediate CA uses passphrases managed by
+`pass` utility:
+
+#+begin_src bash
+# Each team member should set up pass
+pass init your-gpg-email@example.org
+
+# Add intermediate CA passphrase
+pass insert ca/intermediate-passphrase
+# Prompt: enter strong passphrase (20+ chars,
+# mixed case, numbers, symbols)
+#+end_src
+
+** Step 3: Root CA Setup (Root Keeper Only)
+
+The designated root-keeper performs this on an
+offline machine:
+
+#+begin_src bash
+# Generate root CA private key (Ed25519)
+just root-gen-key
+
+# Create self-signed root CA certificate
+just root-gen-cert
+
+# Verify
+just root-status
+just root-inspect
+#+end_src
+
+For legacy RSA support:
+#+begin_src bash
+# Alternative: generate RSA-4096 key
+just root-gen-key-rsa 4096
+#+end_src
+
+** Step 4: Intermediate CA Setup (Intermediate Manager)
+
+On the online machine:
+
+#+begin_src bash
+# Initialize intermediate CA databases
+just intermediate-setup
+
+# Generate intermediate CA private key (encrypted)
+just intermediate-gen-key
+
+# Create CSR to be signed by root
+just intermediate-csr
+#+end_src
+
+The CSR file `intermediate-ca/csr/intermediate-ca.csr`
+must be transferred to the root CA (via secure media)
+for signing.
+
+** Step 5: Root CA Signs Intermediate CSR
+
+Root keeper receives the CSR and signs it:
+
+#+begin_src bash
+just root-sign-intermediate /path/to/intermediate-ca.csr
+#+end_src
+
+Signed certificate placed in
+`root-ca/certs/intermediate-ca.crt`. Transfer back
+to online machine.
+
+** Step 6: Intermediate CA Installation
+
+Intermediate manager installs the signed certificate:
+
+#+begin_src bash
+just intermediate-install-cert /path/to/signed-cert.crt
+#+end_src
+
+Verify with:
+#+begin_src bash
+just intermediate-status
+just intermediate-inspect
+#+end_src
+
+* Team Roles and Workflows
+
+** Root Keeper
+
+A single designated person who:
+- Maintains the offline root CA
+- Has physical access to Yubikey
+- Signs intermediate CSRs only
+- Performs root CA key rotation (rare: every 10+ years)
+- Maintains audit log of all root operations
+
+#+begin_src
+Workflow: Receive CSR → Sign → Return certificate
+Time: ~15 minutes per signature
+Access: Offline machine only
+#+end_src
+
+** Intermediate Manager (2-3 people)
+
+Online CA operators who:
+- Issue end-entity certificates daily
+- Manage certificate revocation
+- Generate Certificate Revocation Lists (CRLs)
+- Create CSRs for new certificates
+- Maintain list of issued/revoked certificates
+- Log all operations in audit trail
+
+#+begin_src
+Workflow: Receive request → Generate CSR → Issue
+          → Deliver certificate
+Time: ~5 minutes per certificate
+Access: Online intermediate-ca/ directory
+#+end_src
+
+** Auditor (Optional)
+
+Read-only role:
+- Reviews monthly CA activity
+- Verifies compliance with security policies
+- Checks for anomalies (unusual issuance patterns)
+- Maintains audit trail
+
+* Root CA Operations
+
+** Generating Root Certificate (Setup)
+
+The root certificate is self-signed and serves as
+the trust anchor:
+
+#+begin_src bash
+# Step 1: Generate private key (Ed25519)
+just root-gen-key
+
+# Step 2: Create self-signed certificate
+just root-gen-cert
+
+# Step 3: Verify
+just root-inspect
+#+end_src
+
+Certificate details:
+- *Subject*: C=SE, ST=Stockholm, O=Organization,
+  CN=Root CA
+- *Validity*: 20 years (7300 days)
+- *Key Usage*: Certificate signing, CRL signing
+- *Key Algorithm*: Ed25519 or RSA-4096
+
+** Signing Intermediate CSR
+
+The root CA signs an intermediate CA certificate
+signing request:
+
+#+begin_src bash
+just root-sign-intermediate \
+  intermediate-ca/csr/intermediate-ca.csr
+#+end_src
+
+This creates an X.509 v3 certificate with:
+- Path constraint: pathlen:0 (can only sign
+  end-entity certs, not other CAs)
+- Validity: 10 years (3650 days)
+- Key Usage: Certificate signing, CRL signing
+
+** Backup & Key Rotation
+
+*Backup* (every 6 months):
+- Archive root private key to encrypted
+  external media
+- Store in secure location (bank safe, etc.)
+- Document serial numbers of all certificates
+  issued
+
+*Key Rotation* (every 10+ years):
+- Generate new root key and certificate
+- Have old root sign new root certificate
+  (create chain)
+- Notify all stakeholders
+- Deprecate old root (announce sunset date)
+
+** Emergency Recovery
+
+If root key is compromised:
+1. Immediately revoke root certificate
+2. Generate new root CA key and self-signed
+   certificate
+3. Have new root sign all active intermediate
+   certificates
+4. Notify all users to update trust roots
+
+* Intermediate CA Operations
+
+** Issuing End-Entity Certificates
+
+Common workflow for issuing server/user certificates:
+
+#+begin_src bash
+# Step 1: Generate CSR and private key for requestor
+just intermediate-gen-end-entity-csr \
+  "example.org" "Stockholm" "SE" "Organization" "IT"
+
+# Step 2: Requestor uses key and CSR to request
+# (or intermediate manager can use generated CSR)
+
+# Step 3: Intermediate CA signs the CSR
+just intermediate-issue-cert \
+  intermediate-ca/csr/example.org.csr
+
+# Step 4: Deliver certificate to requestor
+# File: intermediate-ca/newcerts/example.org.crt
+#+end_src
+
+Certificate attributes:
+- *Validity*: 1 year (365 days) by default
+- *Key Usage*: Digital Signature, Key Encipherment
+- *Extended Key Usage*: TLS Server Auth, TLS Client Auth
+- *Path Constraint*: None (cannot sign other certs)
+
+** Revoking Certificates
+
+When a certificate needs to be revoked (key
+compromise, service shutdown, etc.):
+
+#+begin_src bash
+just intermediate-revoke \
+  intermediate-ca/newcerts/example.org.crt \
+  "keyCompromise"
+#+end_src
+
+Supported revocation reasons:
+- `unspecified` (default)
+- `keyCompromise` (private key compromised)
+- `cACompromise` (CA compromised)
+- `affiliationChanged` (user no longer affiliated)
+- `superseded` (replaced by new certificate)
+- `cessationOfOperation` (service discontinued)
+- `certificateHold` (temporarily revoked)
+
+** Generating Certificate Revocation List
+
+Publish the CRL periodically (e.g., weekly) for
+clients to check revocation status:
+
+#+begin_src bash
+just intermediate-gen-crl
+#+end_src
+
+CRL location: `intermediate-ca/crl/intermediate-ca.crl`
+
+Publish to an HTTP endpoint or LDAP directory for
+clients to access.
+
+** Viewing Issued Certificates
+
+List all certificates issued by intermediate CA:
+
+#+begin_src bash
+# View index file
+cat intermediate-ca/index.txt
+
+# Inspect individual certificate
+just inspect-cert intermediate-ca/newcerts/example.org.crt
+#+end_src
+
+Index file format:
+#+begin_src
+V   2027-05-25 23:59:59Z     1001    unknown /CN=example.org
+^   ^                         ^       ^
+Status (V/R/E) | Expiry | Serial | Revocation reason
+#+end_src
+
+Status codes:
+- `V`: Valid
+- `R`: Revoked
+- `E`: Expired
+
+* Security Policies
+
+** Key Protection
+
+| Component | Key Type | Protection | Access |
+|-----------|----------|------------|--------|
+| Root CA | Ed25519/ | Yubikey + | Root |
+| | RSA | offline | keeper only |
+| Intermediate | Ed25519/ | AES-256 | Intermediate |
+| CA | RSA | encrypted | managers |
+| | | + pass | |
+| End-entity | Ed25519/ | No | Service/ |
+| | RSA | encryption | user |
+
+** Passphrase Requirements
+
+- *Length*: Minimum 20 characters
+- *Complexity*: Mix of uppercase, lowercase,
+  numbers, symbols
+- *Storage*: `pass` utility only (never hardcoded,
+  never in files)
+- *Rotation*: Annually or when personnel changes
+- *Sharing*: Only with team members on need-to-know
+  basis
+
+Example strong passphrase:
+#+begin_src
+Tr0p1cal-Flamingo!2024-MiddleEarth#9
+#+end_src
+
+** Access Control
+
+| Role | Root CA | Intermediate | CSRs | Audit |
+| | | CA | | Log |
+|------|---------|--------------|------|-------|
+| Root | Read/ | Read | Read | Write |
+| Keeper | Write | | | |
+| Intermediate | Read | Read/Write | Read/ | Write |
+| Manager | | | Write | |
+| Auditor | Read | Read | Read | Read |
+
+*Implementation*:
+- Use filesystem permissions (chmod 700, 600)
+- Keep root-ca/ on offline machine only
+- Store intermediate-ca/ on secure server
+  with access controls
+- All changes logged and audit-able
+
+** Git Security
+
+⚠️ CRITICAL: No secrets in git!
+
+The `.gitignore` file prevents commits of:
+- All private keys (`*.key`, `*.p8`, `*.p12`)
+- Encrypted keys in `root-ca/private/` and
+  `intermediate-ca/private/`
+- Passphrases and environment files (`.env`)
+
+Before committing, verify:
+#+begin_src bash
+git status root-ca/private intermediate-ca/private
+# Should output: nothing to commit
+
+# Or scan for secrets:
+git diff --cached -- '*ca/private' '*.key' '*.pem'
+# Should be empty
+#+end_src
+
+** Crypto Standards
+
+*Algorithm Selection*:
+- *Primary*: Ed25519 (modern, secure, fast)
+- *Fallback*: RSA-4096 (for legacy systems like
+  Grandstream SIP adapters)
+- *Hash*: SHA-256 (mandatory)
+- *Avoid*: SHA-1, MD5, RSA < 2048, DES, SSL 3.0
+
+*Key Sizes*:
+| Algorithm | Size | Use Case |
+|-----------|------|----------|
+| Ed25519 | 32 bytes | Preferred for all new |
+| | | CAs/certs |
+| RSA | 4096 bits | Legacy device support |
+| ECDSA | P-256 | Legacy support |
+| | | (not preferred) |
+
+* Audit Trail
+
+** Logging Operations
+
+All CA operations must be logged. Create entries
+in a central log (this file or dedicated audit log):
+
+#+begin_src org
+** [2026-05-25] Certificate Issued
+
+- *Requestor*: John Doe <john@example.org>
+- *CN*: mail.example.org
+- *Serial*: 1001
+- *Validity*: 2026-05-25 to 2027-05-25
+- *Issued by*: Alice (intermediate manager)
+- *Purpose*: SMTP server certificate
+- *Notes*: Production deployment
+
+** [2026-05-20] Certificate Revoked
+
+- *CN*: old-api.example.org
+- *Serial*: 999
+- *Reason*: superseded (replaced by new.api.example.org)
+- *Revoked by*: Bob (intermediate manager)
+- *Date*: 2026-05-20
+- *Notes*: Service decommissioned
+#+end_src
+
+** Audit Checklist (Monthly)
+
+1. Review all issued certificates in
+   `intermediate-ca/index.txt`
+2. Check for unusual issuance patterns (high
+   volume, unusual names, etc.)
+3. Verify all revoked certificates are logged
+   with reason
+4. Check certificate expiry dates (warn if < 3
+   months)
+5. Verify passphrase rotation schedule is on
+   track
+6. Review filesystem permissions and access logs
+7. Confirm no secrets in recent git commits
+8. Test CRL distribution and OCSP (if deployed)
+
+* Troubleshooting
+
+** Problem: Passphrase not found
+
+#+begin_src bash
+# Error: Passphrase not found in pass utility
+# Fix: Add it
+pass insert ca/intermediate-passphrase
+
+# List all secrets
+pass ls ca/
+#+end_src
+
+** Problem: "permission denied" when accessing keys
+
+#+begin_src bash
+# Fix: Ensure correct file permissions
+chmod 400 root-ca/private/*.key
+chmod 400 intermediate-ca/private/*.key
+#+end_src
+
+** Problem: OpenSSL config path issues
+
+#+begin_src bash
+# If openssl can't find openssl.cnf, specify
+openssl ca -config $(pwd)/root-ca/openssl.cnf ...
+#+end_src
+
+** Problem: "certificate request bad" when signing
+
+Verify CSR is valid:
+#+begin_src bash
+openssl req -in <csr-file> -text -noout -verify
+#+end_src
+
+** Problem: Certificate expiry warnings
+
+Set calendar reminders for certificate renewal:
+- 6 months before intermediate CA expiry
+- 3 months before end-entity certificates expiry
+
+* Compliance and Standards
+
+This CA follows:
+
+- **RFC 5280**: Internet X.509 Public Key
+  Infrastructure
+- **RFC 6962**: Certificate Transparency
+- **NIST SP 800-32**: PKI Best Practices
+- **Mozilla Root Store Policy** (for public CAs)
+- **Organization internal policies** (for
+  internal CAs)
+
+Key compliance areas:
+1. Certificate validity periods (root: ≤20y,
+   intermediate: ≤10y, end-entity: ≤3y)
+2. Key generation and protection (secure random,
+   encrypted storage)
+3. Certificate issuance (proper identification,
+   audit trail)
+4. Revocation procedures (timely, documented)
+5. Key rotation (periodic renewal)
+6. Incident response (breach procedures)
+
+See CLAUDE.md for development guidelines and
+integration details.
+
+---
+
+*Last updated: 2026-05-25*
+*Version: 1.0*
+*Maintainer: Root Keeper & Intermediate Managers*

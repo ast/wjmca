@@ -1,0 +1,40 @@
+# Private keys - NEVER commit
+root-ca/private/
+intermediate-ca/private/
+*.key
+*.p8
+*.p12
+*.pfx
+*.pem
+!*.pub.pem
+!*.crt.pem
+
+# Passphrases and secrets
+.pass/
+.env
+.env.local
+
+# OpenSSL database files
+*.db
+*.db.attr
+*.old
+
+# Temporary files
+*.tmp
+*.bak
+*~
+.#*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor backups
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts and logs
+*.log
+*.out

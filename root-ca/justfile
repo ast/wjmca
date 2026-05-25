@@ -1,0 +1,188 @@
+#!/usr/bin/env just --justfile
+
+# Root CA Operations
+# WARNING: These operations should only be performed on an offline machine by the designated root-keeper
+
+set shell := ["bash", "-euo", "pipefail"]
+
+CA_DIR := justfile_directory()
+PRIVATE_DIR := CA_DIR + "/private"
+CERTS_DIR := CA_DIR + "/certs"
+CSR_DIR := CA_DIR + "/csr"
+OPENSSL_CONF := CA_DIR + "/openssl.cnf"
+
+# Show available root CA recipes
+help:
+    @just --list
+
+# Generate root CA private key
+gen-key algorithm="ed25519":
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "{{ PRIVATE_DIR }}"
+    KEY_FILE="{{ PRIVATE_DIR }}/root-ca.key"
+
+    if [[ -f "$KEY_FILE" ]]; then
+        echo "⚠️  Key already exists: $KEY_FILE"
+        exit 1
+    fi
+
+    case "{{ algorithm }}" in
+        ed25519)
+            echo "🔐 Generating Ed25519 private key..."
+            openssl genpkey -algorithm ED25519 -out "$KEY_FILE"
+            chmod 400 "$KEY_FILE"
+            echo "✓ Key generated: $KEY_FILE"
+            ;;
+        rsa)
+            echo "🔐 Generating RSA-4096 private key (this may take a moment)..."
+            openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$KEY_FILE"
+            chmod 400 "$KEY_FILE"
+            echo "✓ Key generated: $KEY_FILE"
+            ;;
+        *)
+            echo "❌ Unknown algorithm: {{ algorithm }}"
+            exit 1
+            ;;
+    esac
+
+# RSA key generation (convenience alias)
+gen-key-rsa bits="4096":
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "{{ PRIVATE_DIR }}"
+    KEY_FILE="{{ PRIVATE_DIR }}/root-ca.key"
+
+    if [[ -f "$KEY_FILE" ]]; then
+        echo "⚠️  Key already exists: $KEY_FILE"
+        exit 1
+    fi
+
+    echo "🔐 Generating RSA-{{ bits }} private key (this may take a moment)..."
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:{{ bits }} -out "$KEY_FILE"
+    chmod 400 "$KEY_FILE"
+    echo "✓ Key generated: $KEY_FILE"
+
+# Generate self-signed root CA certificate
+gen-cert:
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "{{ CERTS_DIR }}"
+    KEY_FILE="{{ PRIVATE_DIR }}/root-ca.key"
+    CERT_FILE="{{ CERTS_DIR }}/root-ca.crt"
+
+    if [[ ! -f "$KEY_FILE" ]]; then
+        echo "❌ Key not found: $KEY_FILE"
+        echo "Run: just root-gen-key (or root-gen-key-rsa for RSA)"
+        exit 1
+    fi
+
+    if [[ -f "$CERT_FILE" ]]; then
+        echo "⚠️  Certificate already exists: $CERT_FILE"
+        exit 1
+    fi
+
+    echo "🔏 Generating self-signed root CA certificate..."
+    openssl req -new -x509 -days 7300 -key "$KEY_FILE" \
+      -out "$CERT_FILE" -config "{{ OPENSSL_CONF }}" \
+      -extensions v3_ca
+    chmod 444 "$CERT_FILE"
+    echo "✓ Certificate generated: $CERT_FILE"
+    openssl x509 -in "$CERT_FILE" -noout -text | grep -A 5 "Subject:"
+
+# Generate Certificate Signing Request (CSR) for root CA
+gen-csr:
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "{{ CSR_DIR }}"
+    KEY_FILE="{{ PRIVATE_DIR }}/root-ca.key"
+    CSR_FILE="{{ CSR_DIR }}/root-ca.csr"
+
+    if [[ ! -f "$KEY_FILE" ]]; then
+        echo "❌ Key not found: $KEY_FILE"
+        exit 1
+    fi
+
+    echo "📝 Generating root CA CSR..."
+    openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" \
+      -config "{{ OPENSSL_CONF }}"
+    echo "✓ CSR generated: $CSR_FILE"
+
+# Sign an intermediate CA certificate request
+sign-intermediate csr-file:
+    #!/bin/bash
+    set -euo pipefail
+
+    if [[ ! -f "{{ csr-file }}" ]]; then
+        echo "❌ CSR file not found: {{ csr-file }}"
+        exit 1
+    fi
+
+    CERT_NAME=$(basename "{{ csr-file }}" .csr)
+    CERT_OUT="{{ CERTS_DIR }}/${CERT_NAME}.crt"
+
+    if [[ -f "$CERT_OUT" ]]; then
+        echo "⚠️  Certificate already exists: $CERT_OUT"
+        exit 1
+    fi
+
+    echo "🔐 Signing intermediate CA certificate..."
+    echo "  CSR: {{ csr-file }}"
+    echo "  Output: $CERT_OUT"
+
+    openssl ca -config "{{ OPENSSL_CONF }}" \
+      -extensions v3_intermediate_ca \
+      -days 3650 \
+      -notext -md sha256 \
+      -in "{{ csr-file }}" \
+      -out "$CERT_OUT" \
+      -batch
+
+    echo "✓ Certificate signed: $CERT_OUT"
+
+# View root CA certificate
+inspect:
+    #!/bin/bash
+    set -euo pipefail
+    CERT_FILE="{{ CERTS_DIR }}/root-ca.crt"
+
+    if [[ ! -f "$CERT_FILE" ]]; then
+        echo "❌ Certificate not found: $CERT_FILE"
+        exit 1
+    fi
+
+    echo "📋 Root CA Certificate Details:"
+    openssl x509 -in "$CERT_FILE" -text -noout
+
+# Show root CA status
+status:
+    #!/bin/bash
+    set -euo pipefail
+    echo "🔍 Root CA Status"
+    echo "================"
+
+    KEY_FILE="{{ PRIVATE_DIR }}/root-ca.key"
+    CERT_FILE="{{ CERTS_DIR }}/root-ca.crt"
+
+    if [[ -f "$KEY_FILE" ]]; then
+        echo "✓ Private key exists: $KEY_FILE"
+        echo "  Size: $(ls -lh "$KEY_FILE" | awk '{print $5}')"
+    else
+        echo "✗ Private key NOT found"
+    fi
+
+    if [[ -f "$CERT_FILE" ]]; then
+        echo "✓ Certificate exists: $CERT_FILE"
+        VALID_UNTIL=$(openssl x509 -in "$CERT_FILE" -noout -enddate | cut -d= -f2)
+        echo "  Valid until: $VALID_UNTIL"
+    else
+        echo "✗ Certificate NOT found"
+    fi
+
+    if [[ -f "{{ CA_DIR }}/index.txt" ]]; then
+        echo "✓ Database initialized"
+        CERT_COUNT=$(grep -c "^V" "{{ CA_DIR }}/index.txt" 2>/dev/null || echo 0)
+        echo "  Signed certificates: $CERT_COUNT"
+    else
+        echo "✗ Database not initialized"
+    fi
