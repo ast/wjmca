@@ -309,34 +309,178 @@ This was the "Public Key Authentication Problem."
 
 * The Infrastructure: Building Trust (1980s-1990s)
 
-** X.509 Certificates
+** X.509 Certificates: Structure and Encoding
 
 In 1988, the ITU (International Telecommunications
-Union) published X.509, defining a standard
-certificate format:
+Union) published X.509, a standard for digital
+certificates. But here's where it gets technical:
+X.509 is not a file format. It's a *specification* of
+what data should go in a certificate.
+
+*** The Conceptual Structure
 
 A certificate binds:
-- A subject's name (e.g., "Alice")
-- Their public key
-- The issuer's digital signature (proving authenticity)
-- Validity dates and constraints
+- A **subject's name** (using Distinguished Names:
+  CN, O, ST, C, etc.)
+- Their **public key** (the actual cryptographic
+  material: RSA modulus + exponent, or ECC curve point)
+- The **issuer's digital signature** (proves authenticity)
+- **Validity dates** (notBefore, notAfter)
+- **Extensions** (key usage constraints, alternative
+  names, etc.)
 
-Example structure:
+Example (conceptually):
 #+begin_src
-Certificate:
-  Subject: CN=Alice, O=Organization
-  Public Key: (Alice's RSA key)
-  Issuer: CN=Root CA, O=Organization
-  Signature: (Root CA's signature proving this cert
-             is authentic)
-  Valid From: 2026-05-25
-  Valid Until: 2027-05-25
+Certificate {
+  Version: v3
+  SerialNumber: 1001
+  Signature Algorithm: sha256WithRSAEncryption
+  Issuer: CN=Root CA, O=Organization, C=SE
+  Subject: CN=Alice, O=Organization, C=SE
+  NotBefore: 2026-05-25 00:00:00 UTC
+  NotAfter: 2027-05-25 23:59:59 UTC
+  SubjectPublicKeyInfo {
+    Algorithm: rsaEncryption
+    PublicKey: (RSA key: modulus + exponent)
+  }
+  Extensions {
+    KeyUsage: digitalSignature, keyEncipherment
+    BasicConstraints: CA=false
+  }
+  SignatureValue: (hash of above, encrypted with
+                   issuer's private key)
+}
 #+end_src
 
-The key insight: trust is *delegated* through
+*** ASN.1: The Language
+
+X.509 is defined in **ASN.1** (Abstract Syntax
+Notation One), a language for describing data
+structures. ASN.1 is *abstract*—it says "here's
+the structure" but not "here's how to encode it."
+
+Example ASN.1 definition (simplified):
+#+begin_src asn1
+Certificate ::= SEQUENCE {
+  tbsCertificate       TBSCertificate,
+  signatureAlgorithm   AlgorithmIdentifier,
+  signature            BIT STRING
+}
+
+TBSCertificate ::= SEQUENCE {
+  version         [0] Version DEFAULT v1,
+  serialNumber    CertificateSerialNumber,
+  signature       AlgorithmIdentifier,
+  issuer          Name,
+  validity        Validity,
+  subject         Name,
+  subjectPublicKeyInfo SubjectPublicKeyInfo
+}
+#+end_src
+
+The beauty (and complexity) of ASN.1 is that it's
+*language-agnostic*. It describes the structure
+independent of how it's encoded.
+
+*** DER: Binary Encoding
+
+**DER** (Distinguished Encoding Rules) is how X.509
+certificates are *actually encoded*. It's a **binary
+format**.
+
+When you run:
+#+begin_src bash
+openssl genrsa -out key.pem 4096
+openssl req -new -key key.pem -out cert.csr
+openssl x509 -req -in cert.csr -signkey key.pem \
+  -out cert.der -outform DER
+#+end_src
+
+That `cert.der` file is a binary file. If you open it
+in a text editor, you'll see garbage (binary data).
+
+DER encoding is:
+- **Deterministic**: Every ASN.1 structure maps to
+  exactly one binary representation
+- **Compact**: No wasted space
+- **Unambiguous**: The binary format uniquely
+  identifies the structure
+
+Example: The RSA public key inside a certificate is
+encoded as:
+- Tag (0x30 = SEQUENCE)
+- Length (number of bytes following)
+- Content (RSA modulus, then exponent, both as
+  integers with tags and lengths)
+- Each integer: tag (0x02), length, bytes
+
+*** PEM: Text Encoding
+
+**PEM** (Privacy Enhanced Mail) is a *text-based*
+format that wraps DER. It's what you typically see:
+
+#+begin_src
+-----BEGIN CERTIFICATE-----
+MIIDXTCCAkWgAwIBAgIJAJC1/iNAZwqDMA0GCSqGSIb3
+DQEBBQUAMEUxCzAJBgNVBAYTAkFVMRMwEQYDVQQIDApT
+b21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBXaWRn
+aXRzIFB0eSBMdGQwHhcNMTMwOTA0MjM1MjE3WhcNMTQw
+OTA0MjM1MjE3WjBFMQswCQYDVQQGEwJBVTETMBEGA1UE
+-----END CERTIFICATE-----
+#+end_src
+
+PEM is DER converted to base64 and wrapped with
+header/footer. It's *text*, so you can view it in a
+text editor, email it, paste it in documentation.
+
+To convert:
+#+begin_src bash
+# DER to PEM
+openssl x509 -inform DER -in cert.der \
+  -out cert.pem
+
+# PEM to DER
+openssl x509 -inform PEM -in cert.pem \
+  -outform DER -out cert.der
+#+end_src
+
+*** Why This Matters
+
+In **wjmca**, when we store certificates:
+- `root-ca/certs/root-ca.crt` is typically **PEM format**
+  (text-based, human-readable, easy to inspect)
+- OpenSSL defaults to PEM for `.crt` files
+- Browsers and systems understand both DER and PEM
+- Internally, OpenSSL parses these into memory
+  structures, but storage is DER-in-PEM
+
+When you run:
+#+begin_src bash
+openssl x509 -in cert.pem -text -noout
+#+end_src
+
+You're asking OpenSSL to:
+1. Parse the PEM file (base64 decode, remove headers)
+2. Parse the DER (binary) into an X.509 structure
+3. Print it in human-readable text form
+
+*** The Key Insight
+
+X.509 is **abstract** (defined in ASN.1). DER is
+**binary** (the wire format). PEM is **text**
+(base64-encoded DER for human readability).
+
+For cryptographic purposes, DER is what matters—it's
+deterministic, compact, unambiguous. PEM is just a
+convenience wrapper for humans and systems that
+prefer text formats.
+
+This is why trust is *delegated* through
 signatures. If you trust the Root CA, and the Root CA
-signed Alice's certificate, then you can trust
-Alice's public key.
+signed Alice's certificate (the issuer field in her
+X.509 cert contains the root's name, and the
+signature is valid), then you can trust Alice's
+public key.
 
 ** Certificate Authorities: Trust Anchors
 

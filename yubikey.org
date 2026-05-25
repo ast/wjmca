@@ -176,6 +176,140 @@ ykman piv info
 The root CA key will be generated and stored on
 the Yubikey. Never exported.
 
+** Inspecting Your Yubikey Before Generating Keys
+
+Before generating a new key, inspect what's already
+on your device. This is essential if you're
+experimenting or the Yubikey has been used before.
+
+*** Full Device Overview
+
+#+begin_src bash
+ykman piv info
+#+end_src
+
+This shows:
+- PIV version (e.g., 3.1.2)
+- PIN retries remaining (default: 3)
+- PUK retries remaining
+- Management Key algorithm (TDES or AES)
+- Slots and their status
+
+Example output:
+#+begin_src
+PIV version: 3.1.2
+PIN retries: 3
+PUK retries: 3
+Management Key Algorithm: TDES
+PIN-protected: false
+Touch policy for 9a: always
+Touch policy for 9c: once
+Touch policy for 9d: always
+Touch policy for 9e: always
+Chained certificates: false
+#+end_src
+
+*** Check Hardware and Firmware
+
+#+begin_src bash
+ykman info
+#+end_src
+
+Shows:
+- Device name (YubiKey 5 NFC, etc.)
+- Firmware version
+- Serial number
+- Enabled capabilities (OTP, FIDO, CCID, etc.)
+
+Example:
+#+begin_src
+YubiKey 5 NFC (5.4.3) [OTP+FIDO+CCID]
+Serial: 23027434
+#+end_src
+
+*** List All Keys on Device
+
+#+begin_src bash
+ykman piv keys list
+#+end_src
+
+Shows which slots contain keys:
+- Slot 9a (PIV Authentication)
+- Slot 9c (Digital Signature) ← **This is what we use**
+- Slot 9d (Key Management)
+- Slot 9e (Card Authentication)
+
+Example:
+#+begin_src
+Slot 9c (Digital Signature):
+  Type: RSA4096
+  Subject: CN=Root CA,O=Organization
+#+end_src
+
+*** List All Certificates on Device
+
+#+begin_src bash
+ykman piv certificates list
+#+end_src
+
+Shows which slots have certificates installed.
+
+*** Inspect Specific Slot (9c - Our Signing Slot)
+
+Check if slot 9c already has a certificate:
+
+#+begin_src bash
+# Export certificate from slot 9c
+ykman piv certificates export 9c -
+
+# Or export and view human-readable format
+ykman piv certificates export 9c cert.pem
+openssl x509 -in cert.pem -text -noout
+#+end_src
+
+Output shows:
+- Subject name
+- Issuer
+- Serial number
+- Validity dates
+- Public key details
+
+*** Safety Check Before Generating
+
+**⚠️ WARNING**: Generating a new key in slot 9c
+**will overwrite any existing key permanently**.
+
+Before proceeding, ask yourself:
+
+1. **Is slot 9c empty?**
+   #+begin_src bash
+   ykman piv keys list | grep "Slot 9c"
+   #+end_src
+   If it shows nothing, slot 9c is empty and safe to use.
+
+2. **If slot 9c is occupied, do you still have the key?**
+   - If YES: You can use the existing key (don't generate
+     a new one)
+   - If NO: You'll lose access to it if you overwrite
+
+3. **Is this your first time with this Yubikey?**
+   - If YES: Run the inspection commands above first
+
+*** Recovering an Existing Key
+
+If slot 9c already has a key and you want to use it:
+
+#+begin_src bash
+# Export the certificate
+ykman piv certificates export 9c root-ca.pem
+
+# View details
+openssl x509 -in root-ca.pem -text -noout
+
+# Use this key for signing (no need to generate new)
+# Proceed directly to signing operations
+#+end_src
+
 ** Option A: Generate Key on Device (Recommended)
 
 The key is generated directly on the Yubikey and
