@@ -21,19 +21,19 @@ all signing operations happen on the device itself.
 
 ** Supported Models
 
-| Model | PIV | ECDP | Ed25519 | Recommended |
-|-------|-----|------|---------|-------------|
-| YubiKey 5 | ✓ | ✓ | ✗ | ✓ RSA/ECDP |
-| Series | | | | |
-| YubiKey 5 | ✓ | ✓ | ✗ | ✓ FIPS |
-| FIPS Series | | | | if required |
-| YubiKey 5C | ✓ | ✓ | ✗ | ✓ USB-C |
-| YubiKey 5 | ✓ | ✓ | ✗ | ✓ low- |
-| Nano | | | | profile |
-| YubiKey Bio | ✗ | ✗ | ✗ | ✗ biometric |
-| Series | | | | only |
-| YubiKey NEO | ✓ | ✗ | ✗ | ⚠️ older, |
-| | | | | limited |
+| Model       | PIV | ECDP | Ed25519 | Recommended |
+|-------------+-----+------+---------+-------------|
+| YubiKey 5   | ✓   | ✓    | ✗       | ✓ RSA/ECDP  |
+| Series      |     |      |         |             |
+| YubiKey 5   | ✓   | ✓    | ✗       | ✓ FIPS      |
+| FIPS Series |     |      |         | if required |
+| YubiKey 5C  | ✓   | ✓    | ✗       | ✓ USB-C     |
+| YubiKey 5   | ✓   | ✓    | ✗       | ✓ low-      |
+| Nano        |     |      |         | profile     |
+| YubiKey Bio | ✗   | ✗    | ✗       | ✗ biometric |
+| Series      |     |      |         | only        |
+| YubiKey NEO | ✓   | ✗    | ✗       | ⚠️ older,    |
+|             |     |      |         | limited     |
 
 **Recommendation**: YubiKey 5 Series (standard, USB-A)
 or YubiKey 5C (USB-C)
@@ -66,14 +66,20 @@ Before starting, install required software:
 ** Linux/macOS
 #+begin_src bash
 # Ubuntu/Debian
-sudo apt-get install yubikey-manager opensc \
-  libpcsclite1 pcscd
+sudo apt-get update
+sudo apt-get install -y yubikey-manager opensc \
+  libpcsclite1 pcscd pcsc-tools
+
+# Start the smart card daemon
+sudo systemctl start pcscd
+sudo systemctl enable pcscd
 
 # macOS
-brew install yubico-manager opensc pcsclite
+brew install yubico-manager opensc pcsclite pcsc-tools
 
 # Verify installation
 ykman --version
+pcsc_scan
 #+end_src
 
 ** Windows

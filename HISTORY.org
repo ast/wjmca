@@ -1,0 +1,626 @@
+#+title: A History of PKI, Cryptography, and Hardware Security
+#+author: wjmca Project
+#+date: 2026-05-25
+
+* Preface
+
+This document explores the rich history of Public Key
+Infrastructure (PKI), cryptography, and the hardware
+security modules that protect our digital
+communications today. Understanding this history helps
+us appreciate why the tools we use in wjmca—Yubikeys,
+OpenSSL, X.509 certificates—exist the way they do.
+
+The narrative weaves together:
+- The mathematical breakthroughs in cryptography
+- The geopolitical tensions (especially the Cold War)
+  that drove secure communications
+- The evolution of hardware security
+- How these elements converge in modern PKI
+
+* The Cryptography Crisis: Before Public Key
+
+** The "Unbreakable" Cipher Problem
+
+For centuries, the fundamental challenge of
+cryptography was simple: *how do two parties share a
+secret key over an insecure channel?*
+
+During World War II, the Allies broke Nazi Germany's
+Enigma machine—not because the cipher was weak in
+principle, but because:
+1. The Germans had to distribute key settings daily
+2. Operators had to exchange initial settings
+3. Every intercepted message was a potential lead
+
+The lesson: key distribution, not the cipher itself,
+was the weakest link.
+
+After WWII, during the Cold War, this problem
+intensified. Military commanders needed to communicate
+securely across continents. The solution was
+expensive: couriers carried physical key material in
+briefcases (the most secure but slowest method).
+
+Organizations like the NSA invested billions in
+symmetric key cryptography (DES, later AES) because
+they could be efficiently implemented in hardware and
+offered practical security. But the fundamental
+problem remained: *how do you securely distribute the
+keys?*
+
+** The Symmetric Encryption Era (1950s-1970s)
+
+- **DES (Data Encryption Standard)**, adopted 1977:
+  56-bit key, enough for the 1970s but increasingly
+  vulnerable
+- **Cold War context**: The U.S. military used secure
+  telephone networks (RED/BLACK systems) where:
+  - BLACK phones sent unencrypted traffic
+  - RED phones sent encrypted traffic over dedicated
+    lines
+  - Crypto devices (like the NSA's TEMPEST-hardened
+    equipment) sat between the phone and the network
+
+See Electrospaces.net for fascinating details on Cold
+War secure communications infrastructure.
+
+* The Revolution: Public Key Cryptography (1970s)
+
+** The Impossible Problem Solved
+
+In 1976, Whitfield Diffie and Martin Hellman published
+"New Directions in Cryptography," proposing something
+that seemed mathematically impossible: two parties
+could agree on a shared secret over an open channel
+without ever privately exchanging information.
+
+The Diffie-Hellman Key Exchange:
+- Alice and Bob each pick secret numbers
+- They compute and exchange public numbers (safe to
+  intercept)
+- Through mathematical wizardry, they both arrive at
+  the same shared secret
+- An eavesdropper sees only the public numbers and
+  cannot derive the secret
+
+The security rested on the "discrete logarithm
+problem"—it's easy to multiply, hard to "unmultiply"
+in modular arithmetic.
+
+**Why this mattered**: For the first time, two parties
+could establish a secure channel without a trusted
+courier. This was revolutionary.
+
+** RSA: The Practical Implementation (1977)
+
+One year after Diffie-Hellman, Ronald Rivest, Adi
+Shamir, and Leonard Adleman published RSA:
+- A public-key cryptosystem that could both
+  *encrypt* and *digitally sign*
+- Security based on the difficulty of factoring large
+  numbers
+
+With RSA:
+- Alice publishes a public key (product of two large
+  primes)
+- Bob encrypts a message using Alice's public key
+- Only Alice (who knows the primes) can decrypt
+
+**Digital Signatures** (the innovation for PKI):
+- Alice can sign a message with her *private* key
+- Anyone with Alice's *public* key can verify the
+  signature
+- The signature proves Alice created the message
+  (non-repudiation)
+
+This was the birth of PKI conceptually. But a
+practical system required solving new problems.
+
+** The Missing Piece: Authentication
+
+With RSA, Alice could publish her public key, and Bob
+could encrypt messages to her. But how did Bob know
+the public key was *really* from Alice?
+
+What if Eve (an adversary) published a fake key
+claiming to be Alice? Bob would encrypt to the fake
+key, and Eve could decrypt.
+
+This was the "Public Key Authentication Problem."
+
+* The Infrastructure: Building Trust (1980s-1990s)
+
+** X.509 Certificates
+
+In 1988, the ITU (International Telecommunications
+Union) published X.509, defining a standard
+certificate format:
+
+A certificate binds:
+- A subject's name (e.g., "Alice")
+- Their public key
+- The issuer's digital signature (proving authenticity)
+- Validity dates and constraints
+
+Example structure:
+#+begin_src
+Certificate:
+  Subject: CN=Alice, O=Organization
+  Public Key: (Alice's RSA key)
+  Issuer: CN=Root CA, O=Organization
+  Signature: (Root CA's signature proving this cert
+             is authentic)
+  Valid From: 2026-05-25
+  Valid Until: 2027-05-25
+#+end_src
+
+The key insight: trust is *delegated* through
+signatures. If you trust the Root CA, and the Root CA
+signed Alice's certificate, then you can trust
+Alice's public key.
+
+** Certificate Authorities: Trust Anchors
+
+The solution to authentication: introduce a trusted
+third party—the Certificate Authority (CA).
+
+The CA:
+1. Verifies Alice's identity (in person, with
+   documents)
+2. Issues a certificate binding her name to her
+   public key
+3. Signs the certificate with its own private key
+
+Now, if Bob trusts the CA, he can trust Alice's
+public key even if he's never met her.
+
+This model emerged in the 1980s-1990s as:
+- Government PKIs (militaries and intelligence
+  agencies)
+- Commercial CAs (VeriSign, Thawte, etc.)
+- Corporate internal CAs (Microsoft, Apple, etc.)
+
+** The Trust Model Problem
+
+But this introduced a new risk: *what if the CA's
+private key is compromised?*
+
+If Eve steals the CA's key, she can forge certificates
+for anyone. This led to:
+- Physical security of CA operations (vaults, guards)
+- Air-gapped offline systems
+- Hardware security modules (HSMs) to protect keys
+
+** Hardware Security Modules: Early Versions
+
+By the 1990s, organizations protecting CA keys (and
+other sensitive cryptographic material) used:
+
+- **Smartcards**: Microprocessor-based cards that
+  perform cryptographic operations internally
+  - Key never leaves the card
+  - Requires PIN to use
+  - Vulnerable if stolen (brute-force attack on PIN)
+
+- **HSMs (Hardware Security Modules)**: Dedicated
+  appliances
+  - Thales Luna, Gemalto, IBM 4765
+  - Tamper-resistant hardware
+  - Perform signing/decryption operations without
+    exposing keys
+  - Cost: $10,000-$100,000+
+  - Used by government and large enterprises
+
+For Cold War–era secure communications, the NSA's
+approach was different: they designed custom hardware
+for encryption/signing and stored key material in
+physically isolated vaults, protected by armed guards.
+
+See CryptoMuseum.com for fascinating hardware from
+this era (CRAY computers running crypto, specialized
+secure telephones, etc.).
+
+** The Internet PKI is Born (1990s)
+
+As the internet exploded, a commercial PKI emerged:
+- **SSL/TLS** (Secure Sockets Layer, Transport Layer
+  Security): Allows browsers to connect securely to
+  websites
+- **X.509 certificates**: Issued by commercial CAs
+  (Verisign, GlobalSign, etc.)
+- **Root stores**: Browsers ship with a list of
+  trusted CAs
+
+By 1995, HTTPS was standard. Users saw the green
+padlock and trusted their connection to websites.
+
+* The Evolution of Key Algorithms (2000s-2020s)
+
+** RSA Dominates
+
+RSA became the standard for decades:
+- 1024-bit keys (1990s): Thought secure
+- 2048-bit keys (2000s): More conservative
+- 4096-bit keys (2010s): State-of-the-art
+
+But RSA had a problem: *it was slow and used lots of
+bits*.
+
+To encrypt a message to 10,000 people required
+10,000 RSA operations. For session encryption, you'd
+use RSA to exchange a key, then use AES (a fast
+symmetric cipher) for the bulk data.
+
+** Elliptic Curve Cryptography
+
+In the 1980s, Neal Koblitz and Victor Miller proposed
+elliptic curve cryptography (ECC). The math is
+different from RSA (curves instead of factoring), but
+the same principle: easy in one direction, hard in
+reverse.
+
+Advantage: same security with much smaller keys
+- 256-bit elliptic curve ≈ 2048-bit RSA in security
+- Faster operations
+- Smaller keys (important for certificates)
+
+By the 2010s, ECC became standard for:
+- TLS (now uses ECDHE for key exchange)
+- DNSSEC
+- Cryptocurrency (Bitcoin uses secp256k1)
+
+** Ed25519: The Modern Standard
+
+In 2011, Daniel J. Bernstein proposed EdDSA
+(Edwards-curve Digital Signature Algorithm), with a
+concrete instantiation called Ed25519:
+
+Advantages:
+- Secure against side-channel attacks (constant-time
+  operations)
+- Small keys (32 bytes / 256 bits)
+- Fast signing and verification
+- Simpler math (less room for implementation errors)
+
+Ed25519 is now preferred by cryptographers for
+*new* deployments. It's used in:
+- Signal (private messaging)
+- Modern TLS handshakes
+- Secure shell (SSH) keys
+- Certificate authorities (some issuing certs with
+  Ed25519 keys)
+
+In **wjmca**, we use:
+- Ed25519 for intermediate CAs and end-entity certs
+  (modern, preferred)
+- RSA-4096 on the Yubikey (legacy compatibility)
+- RSA-4096 for the root CA (Yubikey doesn't support
+  Ed25519 in PIV mode yet)
+
+* The Yubikey: Personal Hardware Security (2007-Present)
+
+** Before Yubikeys: Personal Crypto Hardware
+
+In the pre-Yubikey era (1990s-2000s), securing
+personal cryptographic keys was difficult:
+- Smartcards existed but were hard to use (required
+  card readers, drivers)
+- Keys stored on laptops were vulnerable to malware
+- No easy way for individuals to use PKI
+
+Then Yubico, founded in 2007 in Sweden, released the
+**YubiKey**:
+- USB device with embedded smart card hardware
+- Support for multiple protocols: OTP, U2F, FIDO2,
+  PIV
+- Simple, plug-and-play
+- Affordable (~$50 vs. $1000+ for enterprise HSMs)
+
+The Yubikey democratized hardware-based security.
+
+** How Yubikeys Work
+
+The Yubikey is essentially a tiny computer on a chip:
+- Microprocessor (cryptographic processor)
+- Secure storage (encrypted memory)
+- PIN-based authentication
+- Tamper detection (detects physical attacks)
+
+When you use a Yubikey:
+1. Insert it into a USB port
+2. Authenticate with a PIN
+3. The Yubikey performs crypto operations (signing,
+   encryption)
+4. The private key *never leaves* the device
+
+This model is fundamentally more secure than storing
+keys on a laptop, because:
+- The key is isolated from the main OS
+- Malware on your computer cannot steal the key
+- Signing operations happen inside the Yubikey
+  (the attacker would need the PIN)
+
+** PIV Mode: Personal Identity Verification
+
+The Yubikey's **PIV mode** (NIST SP 800-73) is what
+we use in **wjmca**:
+- Designed for government and enterprise use
+- Stores X.509 certificates
+- Performs digital signatures
+- Supports RSA and Elliptic Curve keys
+
+With a Yubikey in PIV mode, you can:
+- Store your digital identity (certificate)
+- Sign documents with your private key
+- Prove your identity to systems that trust your CA
+
+** Modern Alternatives
+
+Today, there are other personal HSMs:
+- **Nitrokey**: Open-source alternative, similar to
+  Yubikey
+- **SmartCard readers**: Use standard smartcards
+  (more flexible but less polished UX)
+- **TPM (Trusted Platform Module)**: Hardware built
+  into modern laptops (less portable but always
+  available)
+
+But Yubikey remains the most popular personal HSM,
+especially for developers and security professionals.
+
+* The Offline Root CA Pattern (2000s-Present)
+
+** The Problem: Root Key Compromise
+
+By the 2000s, CAs understood a critical risk:
+- If the Root CA's private key is compromised, the
+  entire PKI collapses
+- Every certificate ever issued becomes untrustworthy
+- Attackers can forge identities
+
+Major incidents:
+- **2011**: DigiNotar (Dutch CA) compromised; used
+  to issue fake Google certificates
+- **2015**: StartCom and WoSign (CAs) security
+  failures; browsers removed them from trust stores
+
+** The Solution: Offline Root CA
+
+The industry adopted a tiered architecture:
+
+1. **Root CA** (offline, Yubikey-protected):
+   - Never connected to the network
+   - Only signs Intermediate CA certificates
+   - Kept in a vault, rarely used
+   - Protected by physical security and HSM
+
+2. **Intermediate CA** (online):
+   - Connected to a secure server
+   - Issues end-entity certificates
+   - Can be revoked and re-issued quickly
+   - If compromised, only the intermediate's
+     certificates are affected (not the root)
+
+3. **End-entity certificates**: Issued by the
+   Intermediate CA for servers, users, etc.
+
+This *hierarchical trust* model is now standard in
+enterprise and government PKI.
+
+**In wjmca**, we implement exactly this model:
+- `root-ca/` is kept offline (on a secure machine,
+  protected by Yubikey)
+- `intermediate-ca/` runs online (on a secure
+  server)
+- End-entity certs are issued by the intermediate
+
+* Cold War Echoes: Why Offline Security Still Matters
+
+** The Original "Air Gap"
+
+During the Cold War, the most secure communications
+systems were completely isolated from unsecured
+networks. Examples:
+
+- **RED/BLACK separation**: Military facilities had
+  two separate phone systems:
+  - RED: Encrypted, for sensitive communications
+  - BLACK: Unencrypted, for routine traffic
+  - Never connected to each other
+
+- **Dedicated secure lines**: Important conversations
+  happened over dedicated, physically isolated
+  telephone lines (like the "Red Phone" hotline
+  between Washington and Moscow)
+
+- **Courier-delivered key material**: When new
+  encryption keys were needed, armed couriers
+  transported them in sealed briefcases
+
+See Electrospaces.net and CryptoMuseum.com for
+details on secure telephones like the Siemens T311
+and Soviet analogs.
+
+** Why This Still Applies
+
+The offline root CA is a modern descendant of Cold War
+security thinking:
+- **Air-gapped**: The root CA is not connected to
+  networks
+- **Physical security**: Access is controlled
+- **HSM protection**: Keys are protected by hardware
+  (like Cold War crypto devices)
+- **Rare use**: Certificates are only issued when
+  necessary (like the Red Phone—used rarely but
+  reliably)
+
+If the Cold War era taught us anything, it's that
+network-connected systems are inherently vulnerable.
+An offline root CA is a throwback to that wisdom.
+
+* Modern PKI: Trust in a Broken Internet
+
+** The Post-Snowden Era
+
+Edward Snowden's 2013 revelations showed that:
+- Governments conducted mass surveillance
+- Encrypted communications were targeted
+- Certificate authorities themselves were
+  compromised (by governments requesting fake
+  certificates)
+
+This led to:
+- **Certificate Transparency (CT)**: Public logs of
+  all issued certificates, so suspicious certs can
+  be detected
+- **DNSSEC**: Secure DNS to prevent tampering
+- **ACME (Automated Certificate Management
+  Environment)**: Let's Encrypt's protocol for
+  issuing certificates automatically
+- **Pinning**: Websites hardcode which CAs they
+  trust, to prevent rogue CAs
+
+** The Future: Decentralized Trust?
+
+Some advocate moving beyond the CA model:
+- **Blockchain-based PKI**: Public ledgers of
+  identities (bitcoin addresses, DNS names)
+- **Web of Trust**: No central CA; peers vouch for
+  each other (used in PGP/GPG)
+- **COSE/CBOR Object Signing and Encryption**: More
+  flexible trust models for IoT
+
+But for enterprise and government use, hierarchical
+PKI (with offline root CAs) remains the standard.
+
+* Why We Use These Tools in wjmca
+
+** OpenSSL: The Standard Bearer
+
+OpenSSL, originally written by Eric Young in 1998,
+became the de facto standard for X.509 operations:
+- Open-source (anyone can audit it)
+- Implements TLS, PKI, cryptographic algorithms
+- Powers most internet PKI
+
+In **wjmca**, we use OpenSSL to:
+- Generate private keys
+- Create certificate signing requests
+- Issue certificates
+- Verify and inspect certificates
+
+**Note**: OpenSSL had a famous vulnerability
+(Heartbleed, 2014). Since then, it's been heavily
+audited and improved.
+
+** Justfiles: Automation with Accountability
+
+Why use justfile recipes for CA operations?
+- **Repeatability**: Same command every time (reduces
+  errors)
+- **Documentation**: Recipe comments explain what's
+  happening
+- **Auditability**: Logs show who ran what and when
+- **Safety**: Recipes can include confirmations and
+  dry-run modes
+
+This echoes Cold War security practices: operations
+are carefully scripted and documented.
+
+** Org-Mode Documentation
+
+Org-mode (from the Emacs text editor ecosystem) is
+used for:
+- **Procedural documentation**: Step-by-step guides
+- **Audit trails**: Timestamped records of operations
+- **Human readability**: Markdown-like syntax that's
+  easy to read
+
+This combines modern software practices with the
+rigorous documentation standards of government and
+military cryptography.
+
+* Key Milestones: A Timeline
+
+|  Year | Event                                |
+|-------+--------------------------------------|
+|  1946 | ENIAC; modern computing begins       |
+|  1949 | Information Theory (Shannon);        |
+|       | foundation for cryptography          |
+|  1977 | RSA published; DES adopted           |
+|  1985 | Elliptic Curve Cryptography proposed |
+|  1988 | X.509 standard published             |
+|  1995 | SSL/HTTPS standardized               |
+|  2001 | AES adopted (replaces DES)           |
+|  2007 | YubiKey released                     |
+|  2011 | EdDSA (Ed25519) proposed             |
+|  2013 | Snowden revelations;                 |
+|       | Certificate Transparency emerges     |
+|  2015 | Let's Encrypt launches (ACME)        |
+| 2020s | Ed25519 becomes mainstream;          |
+|       | HSMs ubiquitous                      |
+
+* Recommended Reading & Resources
+
+** Books
+
+- *Codebreaker* by Jennifer Duhigg — Modern history
+  of cryptography and surveillance
+- *The Code Breaker* by Walter Isaacson — Detailed
+  history of Jennifer Doudna and CRISPR (includes
+  cryptography context)
+- *Cryptonomicon* by Neal Stephenson — Fiction but
+  historically grounded cryptography narrative
+- *Applied Cryptography* by Bruce Schneier — Technical
+  but readable
+
+** Websites
+
+- **CryptoMuseum.com** — Physical artifacts from
+  cryptography history (Enigma, Cold War devices,
+  modern hardware)
+- **Electrospaces.net** — Technical details on Cold
+  War secure communications, radio, satellites
+- **RFC 5280** — X.509 standard (technical, but
+  foundational)
+- **NIST SP 800-32** — PKI guidelines
+- **Yubico documentation** — YubiKey technical specs
+  and use cases
+
+** Documentaries
+
+- *The Code: A Guide to Google's Codebreaker
+  Festival* — Cryptography challenges
+- *Zero Days* — Modern cybersecurity documentary
+
+* Conclusion: Standing on the Shoulders of Giants
+
+**wjmca** is not a novel invention. It combines:
+- **60+ years of cryptographic research** (RSA, ECC,
+  Ed25519)
+- **Cold War security principles** (offline systems,
+  air-gapping, physical security)
+- **Enterprise PKI practices** (hierarchical CAs,
+  certificate transparency)
+- **Modern hardware** (Yubikeys making HSM security
+  accessible)
+- **Open-source software** (OpenSSL, justfile,
+  org-mode)
+
+By understanding this history, we understand:
+1. **Why** we design PKI the way we do (threat models
+   from decades of attacks)
+2. **Why** we use hardware security (lessons from
+   Cold War cryptography)
+3. **Why** we keep roots offline (they're too
+   valuable to risk)
+4. **Why** standards matter (interoperability,
+   auditability)
+
+The principles are timeless. The tools evolve.
+
+---
+
+*Last updated: 2026-05-25*
+*For questions or contributions, see CLAUDE.md*
