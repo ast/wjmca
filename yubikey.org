@@ -103,6 +103,55 @@ ykman list
 
 * Initial Yubikey Setup
 
+** ⚠️ CRITICAL: Change the Default Management Key Immediately
+
+**DANGER**: When you first use a Yubikey, it has a
+**publicly documented default management key**:
+
+#+begin_src
+010203040506070801020304050607080102030405060708
+#+end_src
+
+This is **not secure**. It's sequential bytes
+(01, 02, 03, ... 08, repeating). Every Yubikey comes
+with this same key. Anyone with this key can:
+
+- Generate new cryptographic keys in any slot
+- Import new certificates
+- Reconfigure the entire device
+- Completely compromise your root CA infrastructure
+
+**If your `ykman piv info` shows**:
+#+begin_src
+WARNING: Using default Management key!
+#+end_src
+
+**You must change it immediately.** This is not
+optional for security-critical operations.
+
+*** Change the Management Key NOW
+
+#+begin_src bash
+ykman piv access change-management-key
+#+end_src
+
+This will:
+1. Ask for your current management key (press Enter
+   if it's the default)
+2. Generate a new random 48-byte (384-bit) key
+3. Prompt you to save it
+
+**Save the new management key securely**:
+#+begin_src bash
+# Recommended: store in pass
+pass insert ca/yubikey-management-key
+# Copy the key from ykman output and paste when
+# prompted
+#+end_src
+
+After this step, `ykman piv info` should NO LONGER
+show the warning.
+
 ** Step 1: Reset the Yubikey (Clean Slate)
 
 ⚠️ WARNING: This deletes everything on Yubikey
@@ -229,21 +278,31 @@ Serial: 23027434
 
 *** List All Keys on Device
 
+Use `yubico-piv-tool` (more direct):
+
 #+begin_src bash
-ykman piv keys list
+yubico-piv-tool -a list
 #+end_src
 
-Shows which slots contain keys:
+Or check specific slots with ykman:
+
+#+begin_src bash
+# Check if a key exists in slot 9c (our signing slot)
+ykman piv keys info 9c
+#+end_src
+
+This shows which slots contain keys:
 - Slot 9a (PIV Authentication)
 - Slot 9c (Digital Signature) ← **This is what we use**
 - Slot 9d (Key Management)
 - Slot 9e (Card Authentication)
 
-Example:
+Example output from `yubico-piv-tool -a list`:
 #+begin_src
-Slot 9c (Digital Signature):
-  Type: RSA4096
-  Subject: CN=Root CA,O=Organization
+PIV 3 Certificate for Slot 9c (Digital Signature):
+  Subject: CN=Root CA, O=Organization
+  Issuer: CN=Root CA, O=Organization
+  Public key (RSA 4096-bit)
 #+end_src
 
 *** List All Certificates on Device
@@ -283,7 +342,7 @@ Before proceeding, ask yourself:
 
 1. **Is slot 9c empty?**
    #+begin_src bash
-   ykman piv keys list | grep "Slot 9c"
+   yubico-piv-tool -a list | grep "Slot 9c"
    #+end_src
    If it shows nothing, slot 9c is empty and safe to use.
 
@@ -326,17 +385,34 @@ ykman piv keys generate --algorithm RSA4096 \
 # once per session
 #+end_src
 
-**Slot Assignment** (PIV standard slots):
-| Slot | Purpose | Our Use |
-|------|---------|---------|
-| 9a | Authentication | (not used) |
-| 9c | Signature | ✓ Root CA signing key |
+**Slot Assignment** (PIV Standard NIST SP 800-73):
+
+The slot numbers are NOT arbitrary—they're defined
+in the official PIV standard used by the U.S.
+government for federal ID cards.
+
+| Slot | Official Purpose (NIST) | Our Use |
+|------|-------------------------|---------|
+| 9a | PIV Authentication | (not used) |
+| 9c | Digital Signature | ✓ Root CA signing |
 | 9d | Key Management | (not used) |
-| 9e | Card Auth | (not used) |
+| 9e | Card Authentication | (not used) |
+
+These slot assignments are standardized across ALL
+PIV-compliant devices (Yubikeys, smartcards, etc.).
+If you use PIV tools from different vendors, they
+all understand these slots the same way.
+
+For our Root CA, we use **slot 9c** (Digital
+Signature) because:
+- It's the standard slot for signing operations
+- OpenSSL and cryptographic tools expect keys here
+- All PIV tools recognize 9c as the signing slot
 
 *Why not Ed25519?* YubiKey 5 PIV mode doesn't
-support Ed25519 in RSA-4096. Use this for root,
-Ed25519 for intermediates.
+support Ed25519 in PIV-compliant slots. Use
+RSA-4096 for root (on Yubikey), Ed25519 for
+intermediates and end-entity certificates.
 
 ** Option B: Generate Offline, Import to Yubikey
 
@@ -802,9 +878,13 @@ ykman piv access change-management-key
 ykman piv access unblock-pin
 # Unblock locked PIN
 
-# Key Generation
+# Key Generation & Info
 ykman piv keys generate 9c --algorithm RSA4096
 # Generate key in slot 9c
+ykman piv keys info 9c
+# Show info about key in slot 9c
+yubico-piv-tool -a list
+# List all keys and certificates on device
 
 # Certificates
 ykman piv certificates list
