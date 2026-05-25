@@ -23,31 +23,58 @@ The narrative weaves together:
 ** The "Unbreakable" Cipher Problem
 
 For centuries, the fundamental challenge of
-cryptography was simple: *how do two parties share a
-secret key over an insecure channel?*
+cryptography was deceptively simple: *how do two
+parties share a secret key over an insecure channel?*
 
-During World War II, the Allies broke Nazi Germany's
-Enigma machine—not because the cipher was weak in
-principle, but because:
-1. The Germans had to distribute key settings daily
-2. Operators had to exchange initial settings
-3. Every intercepted message was a potential lead
+It's a problem that seems unsolvable. Imagine Alice
+wants to send a secret message to Bob across enemy
+territory. She has a cipher (a secret code). But to
+use it, Bob needs to know the key. How can she send
+him the key without an enemy (Eve) intercepting it
+and reading all future messages?
 
-The lesson: key distribution, not the cipher itself,
-was the weakest link.
+During World War II, this problem played out in the
+most consequential way imaginable. The Allies broke
+Nazi Germany's Enigma machine—but not because the
+cipher itself was weak. The Enigma was, in principle,
+a clever machine. The problem was the *key*.
 
-After WWII, during the Cold War, this problem
-intensified. Military commanders needed to communicate
-securely across continents. The solution was
-expensive: couriers carried physical key material in
-briefcases (the most secure but slowest method).
+German operators had to change the Enigma's settings
+every day. Those daily key settings had to be
+distributed to every radio operator across the German
+military—thousands of people, thousands of
+opportunities for interception. The Allies captured
+some Enigma machines and, crucially, captured some
+of these key distribution lists. Each captured list
+revealed patterns. Each pattern led to more messages
+being broken. The codebreakers at Bletchley Park
+understood: *the cipher is only as strong as the key
+distribution*.
 
-Organizations like the NSA invested billions in
+After WWII, during the Cold War, this problem became
+even more acute. Military commanders needed to
+communicate securely across continents. Nuclear
+missiles needed launch codes. Diplomats needed to
+negotiate in secret. But how could you distribute keys
+to thousands of military bases without Eve
+intercepting them?
+
+The U.S. government's solution: *physical couriers*.
+Armed guards carried key material in sealed briefcases
+to military installations. Expensive. Slow. Logistically
+nightmarish. But seemingly the only secure option.
+
+Organizations like the NSA invested *billions* in
 symmetric key cryptography (DES, later AES) because
-they could be efficiently implemented in hardware and
-offered practical security. But the fundamental
-problem remained: *how do you securely distribute the
-keys?*
+these ciphers could be efficiently implemented in
+hardware and offered practical security once you had
+the key. But the fundamental problem remained
+unsolved: *how do you securely distribute the keys in
+the first place?*
+
+This was the cryptographic crisis of the Cold War.
+For twenty years, the best solution humanity had was
+men in briefcases.
 
 ** The Symmetric Encryption Era (1950s-1970s)
 
@@ -69,33 +96,183 @@ War secure communications infrastructure.
 
 ** The Impossible Problem Solved
 
-In 1976, Whitfield Diffie and Martin Hellman published
-"New Directions in Cryptography," proposing something
-that seemed mathematically impossible: two parties
-could agree on a shared secret over an open channel
-without ever privately exchanging information.
+In 1976, something revolutionary happened. Whitfield
+Diffie and Martin Hellman published a paper titled
+"New Directions in Cryptography," and in those pages,
+they proposed something that cryptographers had
+thought was mathematically *impossible*.
 
-The Diffie-Hellman Key Exchange:
-- Alice and Bob each pick secret numbers
-- They compute and exchange public numbers (safe to
-  intercept)
-- Through mathematical wizardry, they both arrive at
-  the same shared secret
-- An eavesdropper sees only the public numbers and
-  cannot derive the secret
+The question they asked was almost philosophical:
+*Could two parties, communicating only over an
+insecure channel, agree on a shared secret that no
+eavesdropper could discover?*
 
-The security rested on the "discrete logarithm
-problem"—it's easy to multiply, hard to "unmultiply"
-in modular arithmetic.
+For centuries, cryptographers would have said no.
+Intuitively, it seems impossible. If Alice and Bob
+exchange information over an open channel, and Eve
+listens to everything they say, how can they arrange
+a secret?
 
-**Why this mattered**: For the first time, two parties
-could establish a secure channel without a trusted
-courier. This was revolutionary.
+But Diffie and Hellman showed it was possible.
 
-** RSA: The Practical Implementation (1977)
+Here's the magic: Imagine Alice and Bob each pick a
+secret number (known only to themselves). They each
+perform a mathematical operation on their secret and
+broadcast the result (anyone, including Eve, can see
+it). Then, through an elegant mathematical property,
+Alice and Bob can both compute the *same shared
+secret*—but Eve, who only saw the intermediate
+results, cannot.
 
-One year after Diffie-Hellman, Ronald Rivest, Adi
-Shamir, and Leonard Adleman published RSA:
+It's like Alice and Bob each have a lock (public) and
+a key (private). They send each other locked boxes.
+When Alice receives Bob's locked box, she opens it
+with her private key. Inside is a combination. Using
+that combination *and* her private key, she can open
+a final vault. Bob does the same with Alice's box.
+Miraculously, they both end up with the same vault
+contents—a shared secret. Eve, who can see all the
+boxes but has no private keys, cannot open the vault.
+
+The security rested on what cryptographers call the
+"discrete logarithm problem"—in the language of
+modular arithmetic, it's easy to multiply numbers,
+but computationally infeasible to "un-multiply" them.
+In other words, computing the shared secret is easy
+if you have the private key. Computing it from public
+information alone is, for all practical purposes,
+impossible.
+
+**Why this mattered**: For the first time in history,
+two strangers could arrange a secret communication
+over an insecure channel without any pre-arranged
+keys, without couriers, without intermediaries.
+
+The implications were staggering. Governments
+realized this immediately. Communications that once
+required briefcases full of physical key material
+could now be secured with mathematics alone.
+
+** The Secret Inventors: GCHQ's Ellis, Cocks, and Williamson
+
+Here's a secret that wasn't revealed until 1997: the
+British had already invented public key cryptography
+before Diffie, Hellman, Rivest, Shamir, and Adleman.
+
+The story begins at GCHQ (Government Communications
+Headquarters), Britain's signals intelligence agency,
+buried in the Cheltenham countryside. In the late
+1960s, a mathematician named James Ellis had a
+theoretical insight: was it possible to have
+encryption without pre-shared keys? Could you
+publish part of a cipher without compromising the
+whole system?
+
+Ellis called it "non-secret encryption"—a name that
+sounds almost paradoxical. How can encryption be
+non-secret? But the idea haunted him. In 1969, he
+published an internal GCHQ memo outlining the
+theoretical possibility. No one outside GCHQ saw it.
+
+Then, in 1973—*three years before* Diffie and Hellman
+would publish their famous paper—a young GCHQ
+mathematician named Clifford Cocks had an insight.
+Cocks realized that RSA (or rather, a system
+mathematically equivalent to what Rivest, Shamir, and
+Adleman would invent four years later) actually *worked*.
+It wasn't just theory. It was practical cryptography.
+
+A year later, in 1974, Malcolm Williamson developed
+the key exchange method—the Diffie-Hellman equivalent—
+entirely within the classified world.
+
+**The Great Secrecy:**
+
+All three inventions—Ellis' theoretical framework,
+Cocks' RSA implementation, Williamson's key exchange—
+were immediately classified as British state secrets.
+They would remain secret for *24 years*.
+
+Why such extreme secrecy? The answer reveals how
+governments think about cryptography. Officials at GCHQ
+and the British government understood what public key
+cryptography meant:
+
+1. **It would democratize encryption.** Any two
+   people, anywhere in the world, could exchange
+   secret messages without any infrastructure. Without
+   key distribution centers. Without couriers.
+
+2. **It threatened signals intelligence.** For decades,
+   governments had intercepted communications,
+   distributed keys through controlled channels, and
+   broken codes. Public key cryptography threatened to
+   take that power away.
+
+3. **It was a strategic advantage.** If the British
+   had public key cryptography and kept it secret,
+   they could read encrypted communications that
+   everyone else thought were secure. The advantage
+   would be enormous.
+
+So Britain *buried it*. While the public cryptography
+world developed Diffie-Hellman (1976) and RSA (1977),
+thinking they were witnessing the birth of public key
+cryptography, the British knew better. They had the
+real thing, locked away.
+
+**The Public Rediscovery:**
+
+Unaware of the GCHQ work, Whitfield Diffie and Martin
+Hellman published their key exchange in 1976. One year
+later, Ronald Rivest, Adi Shamir, and Leonard Adleman
+published RSA. The cryptographic community hailed
+these as revolutionary.
+
+But in a vault at GCHQ, the actual originals sat
+gathering dust.
+
+**The Declassification:**
+
+It wasn't until December 1997—24 years later—that
+GCHQ finally released the Ellis, Cocks, and Williamson
+papers. The cryptographic world was astonished. The
+leading science magazine *Scientific American* called
+it one of the biggest stories in cryptography history.
+
+The British had kept the secret so well that even
+Rivest, Shamir, and Adleman—the men who received
+prizes and recognition for inventing RSA—didn't know
+that Clifford Cocks had beaten them by four years.
+
+**The Lesson:**
+
+This reveals something profound about how
+cryptography develops. For every innovation that
+becomes public—every paper, every conference, every
+celebrated mathematician—there is a parallel,
+classified history. Governments develop cryptography
+in secret. Sometimes they keep it secret for decades.
+
+This is why Bamford's *The Puzzle Palace* and other
+histories of the NSA matter. Much of cryptography's
+real story remains classified. What we know as the
+"history of cryptography" is really just the *public*
+history. The complete story—the secret innovations,
+the covert advantage—will only be known once those
+governments choose to reveal it, if ever.
+
+For wjmca and modern PKI, this means something
+important: trust algorithms that have withstood public
+scrutiny, but understand that governments may have
+advantages (and weaknesses) that aren't publicly known.
+
+** RSA: The Public Implementation (1977)
+
+One year after Diffie-Hellman (and unknown to the
+academic world, *four years after* Cocks' classified
+work), Ronald Rivest, Adi Shamir, and Leonard Adleman
+published RSA:
 - A public-key cryptosystem that could both
   *encrypt* and *digitally sign*
 - Security based on the difficulty of factoring large
@@ -114,8 +291,9 @@ With RSA:
 - The signature proves Alice created the message
   (non-repudiation)
 
-This was the birth of PKI conceptually. But a
-practical system required solving new problems.
+This was the birth of *public* PKI. But the classified
+world had already solved these problems. A practical
+system required solving new problems.
 
 ** The Missing Piece: Authentication
 
@@ -297,6 +475,205 @@ In **wjmca**, we use:
 - RSA-4096 on the Yubikey (legacy compatibility)
 - RSA-4096 for the root CA (Yubikey doesn't support
   Ed25519 in PIV mode yet)
+
+* Swedish Cryptography: A Hidden Legacy (1940s-Present)
+
+** Arne Beurling and the Legendary Cryptanalysis
+
+While the Enigma machine is famous for being broken
+by the Allies at Bletchley Park, a parallel—and
+equally remarkable—cryptographic story unfolded in
+neutral Sweden.
+
+Picture this: It's 1940, and Swedish military
+intelligence is intercepting German radio signals
+encrypted with the Siemens T52 (Lorenz) machine. The
+problem is, the Swedes have never *seen* the machine.
+No Polish intelligence officers with smuggled Enigma
+parts. No bombes grinding through millions of
+possibilities. Just intercepted ciphertext and a
+brilliant mind.
+
+Enter Arne Beurling (1905-1986), a Swedish
+mathematician of quiet genius. Over the course of
+1940-1941, working alone with pencil, paper, and
+thousands of encrypted German messages, Beurling did
+something that seemed impossible: he *mathematically
+deduced* the internal structure of the T52 machine
+without ever laying eyes on it.
+
+**How he did it:**
+
+Imagine trying to understand a machine's internal
+gears by listening to the pattern of its output. That
+is essentially what Beurling did. He:
+1. Analyzed the statistical properties of thousands
+   of encrypted messages
+2. Looked for patterns—repetitions, anomalies,
+   mathematical regularities
+3. Reasoned backward: "If the machine works this way,
+   what would the output sound like?"
+4. Tested his hypotheses against more intercepted
+   traffic
+5. Eventually reconstructed not just the algorithm,
+   but the *physical machine* itself
+
+By pure mathematics, Beurling determined:
+- The number of rotors (wheels)
+- How they stepped (advanced) with each letter
+- The internal wiring connections
+
+This is considered one of the greatest feats in
+cryptanalysis history. At Bletchley Park, thousands
+of people worked with industrial machinery (bombes),
+stolen Enigma details, and enormous resources. Beurling
+did it alone, with mathematics.
+
+**The secrecy that followed:**
+
+The Swedish government kept Beurling's achievement
+secret for *decades* (not declassified until the
+1970s). Why? Sweden was officially neutral during
+WWII, and later non-aligned during the Cold War.
+Revealing that they could break German codes would
+compromise their neutrality. Moreover, the
+*technique itself*—breaking a machine without seeing
+it—was so powerful that it had to remain classified.
+
+Beurling never became famous in his lifetime. While
+the Bletchley Park codebreakers eventually became
+celebrated (after declassification), Beurling's name
+remained obscure. It's a reminder that the greatest
+intellectual achievements sometimes happen in
+silence, in service to national security, away from
+public recognition.
+
+**The deeper lesson:**
+
+Beurling proved something profound: *mathematical
+structure cannot be hidden*. If an algorithm has
+weaknesses, careful analysis will find them. This is
+why we trust algorithms like RSA and Ed25519—not
+because they're secret, but because their
+mathematical difficulty has been proven through
+public scrutiny.
+
+Conversely, a weak algorithm cannot be saved by
+keeping its design secret. If you try to hide a bad
+design, someone like Beurling will figure it out
+anyway. This principle—that *strong math beats
+secrecy*—remains true today and is why modern
+cryptography is published openly.
+
+** FRA: Sweden's Signals Intelligence Agency
+
+The *Försvarets Radioanstalt* (Swedish Armed Forces
+Radio Intelligence Agency) was established in 1941.
+During and after WWII, FRA:
+- Intercepted and analyzed radio communications
+- Developed Swedish cryptanalysis capabilities
+- Maintained intelligence gathering during the Cold
+  War
+
+Unlike many countries, Sweden maintained strict
+neutrality, which meant:
+- FRA could not openly ally with NATO or the Soviet
+  Union
+- Swedish cryptography developed independently
+- Secure communications had to work with minimal
+  external support
+
+This independence forced Swedish engineers and
+mathematicians to develop robust, in-house
+cryptographic capabilities.
+
+** Swedish Cold War Security Infrastructure
+
+During the Cold War, Sweden faced a unique challenge:
+surrounded by NATO countries (Norway, Denmark) and
+the Soviet Union, but officially non-aligned.
+
+Swedish security measures included:
+- **SÄKERHETSPOLISEN (SÄPO)**: Swedish security
+  police (counterintelligence)
+- **Red/Black telephone systems**: Similar to U.S.
+  military infrastructure, with encrypted RED phones
+  and unencrypted BLACK phones
+- **Secure communications**: Swedish military used
+  encrypted radio and dedicated lines
+- **Air defense**: Integrated radar and secure command
+  networks (documented in Electrospaces.net)
+
+Swedish telecom companies (like L.M. Ericsson)
+developed secure telephone exchanges and
+cryptographic devices for government use.
+
+** Arne Beurling's Later Work: Information Theory
+
+After WWII, Beurling shifted focus to pure
+mathematics and information theory. He made
+fundamental contributions to:
+- Harmonic analysis
+- Function spaces
+- Later work influenced cryptographic thinking
+
+Beurling's insights—that *information can be
+quantified and manipulated mathematically*—are
+foundational to modern cryptography. This bridges
+Shannon's information theory (1948) with practical
+cryptanalysis.
+
+** Swedish Contributions to Modern Cryptography
+
+Sweden has maintained a strong cryptographic
+tradition:
+
+1. **Crypto conferences**: Sweden hosted international
+   cryptography conferences (EUROCRYPT, CRYPTO-hosted
+   workshops)
+2. **Academic cryptography**: Swedish universities
+   (KTH, Lund) have strong cryptographic research
+3. **Commercial security**: Swedish companies
+   (Yubico!) have led in hardware security
+4. **Privacy culture**: Sweden's early adoption of
+   data protection and privacy laws (predating GDPR)
+   reflected a culture of security and trust
+
+** Why This Matters for wjmca
+
+The Swedish cryptographic tradition emphasizes:
+- **Mathematical rigor**: Beurling's example shows
+  that cryptography must be mathematically sound
+- **Independence and reliability**: Sweden's
+  non-aligned position forced self-reliance; this
+  principle applies to organizational PKI
+- **Openness with security**: Modern Swedish PKI
+  practices (and Yubico's transparency) show that
+  security doesn't require secrecy
+- **Long-term thinking**: Cold War-era Swedish
+  security infrastructure was built to last decades;
+  so should modern PKI
+
+When we design **wjmca** with an offline root CA, we
+echo Cold War Swedish principles: isolation,
+reliability, and independence from external threats.
+
+When we use Yubikey (a Swedish company!), we leverage
+decades of Nordic security expertise.
+
+** Resources: Swedish Cryptography History
+
+- **CryptoMuseum.com**: Sections on Swedish WWII
+  codebreaking and Arne Beurling
+- **Electrospaces.net**: Swedish Cold War telecom
+  and secure communications (SÄPO networks, FRA
+  intelligence)
+- **"The Man Who Broke ENIGMA" articles**: Profiles
+  of Beurling's work
+- **KTH Royal Institute of Technology**: Modern
+  Swedish cryptographic research
+- **Yubico documentation**: Modern Swedish
+  contributions to hardware security
 
 * The Yubikey: Personal Hardware Security (2007-Present)
 
