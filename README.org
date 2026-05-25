@@ -29,6 +29,7 @@ security policies, and team roles.
 - [[#audit-trail][Audit Trail]]
 - [[#troubleshooting][Troubleshooting]]
 - [[#compliance-and-standards][Compliance and Standards]]
+- [[./HISTORY.org][📚 History of PKI & Cryptography]]
 
 * Prerequisites
 
@@ -559,6 +560,10 @@ Key compliance areas:
 
 See CLAUDE.md for development guidelines and
 integration details.
+
+For historical context and understanding the
+foundations of PKI, cryptography, and why we design
+systems this way, see [[./HISTORY.org][HISTORY.org]].
 
 ---
 
