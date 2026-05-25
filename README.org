@@ -62,7 +62,7 @@ Before starting, ensure:
    #+end_src
 
 5. For root CA: *Yubikey* with PIV support
-   configured
+   configured (see [[./yubikey.org][Yubikey Setup Guide]])
 
 All team members should verify their setup:
 #+begin_src bash
@@ -100,7 +100,10 @@ pass insert ca/intermediate-passphrase
 ** Step 3: Root CA Setup (Root Keeper Only)
 
 The designated root-keeper performs this on an
-offline machine:
+offline machine.
+
+*Note: For detailed Yubikey setup and integration
+with OpenSSL, see the* [[./yubikey.org][Yubikey Setup Guide]].
 
 #+begin_src bash
 # Generate root CA private key (Ed25519)
