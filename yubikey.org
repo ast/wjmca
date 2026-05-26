@@ -484,11 +484,31 @@ never leaves it:
 ykman piv keys generate --algorithm ECCP384 \
   --pin-policy once 9c /tmp/root-ca.pub.pem
 
-# Enter Management Key when prompted
-# PIN policy 'once' means user must enter PIN
-# once per session
-# The trailing argument is the path where ykman
-# writes the corresponding public key.
+# When prompted for the Management Key, retrieve
+# it from pass:
+#   pass show ca/yubikey-management-key
+#
+# PIN policy 'once' means the user enters the PIN
+# once per session.
+#
+# The trailing positional argument is the path
+# where ykman writes the *public* key (recent
+# ykman versions require this — older docs that
+# omit it will fail with a usage error). The
+# private key stays on the device.
+#+end_src
+
+Verify the key was created on-device:
+
+#+begin_src bash
+ykman piv keys info 9c
+# Expected:
+#   Algorithm:    ECCP384
+#   PIN policy:   ONCE
+#   Touch policy: NEVER  (or as configured)
+#   Origin:       GENERATED
+# "Origin: GENERATED" confirms the key was made
+# on the Yubikey (vs. IMPORTED).
 #+end_src
 
 *Algorithm alternatives:*
