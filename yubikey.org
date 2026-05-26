@@ -67,18 +67,21 @@ Before starting, install required software:
 #+begin_src bash
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install -y yubikey-manager opensc \
-  libpcsclite1 pcscd pcsc-tools
+sudo apt-get install -y yubikey-manager \
+  yubico-piv-tool opensc libpcsclite1 pcscd \
+  pcsc-tools
 
 # Start the smart card daemon
 sudo systemctl start pcscd
 sudo systemctl enable pcscd
 
 # macOS
-brew install yubico-manager opensc pcsclite pcsc-tools
+brew install yubico-manager yubico-piv-tool opensc \
+  pcsclite pcsc-tools
 
 # Verify installation
 ykman --version
+yubico-piv-tool --version
 pcsc_scan
 #+end_src
 
@@ -131,26 +134,37 @@ optional for security-critical operations.
 
 *** Change the Management Key NOW
 
+⚠️ **This command generates a new key AND
+immediately stores it on the Yubikey device.**
+
 #+begin_src bash
-ykman piv access change-management-key
+ykman piv access change-management-key --generate
 #+end_src
 
 This will:
-1. Ask for your current management key (press Enter
-   if it's the default)
-2. Generate a new random 48-byte (384-bit) key
-3. Prompt you to save it
+1. Generate a new random management key
+   (64 hex characters)
+2. **Immediately store it on the Yubikey**,
+   replacing the old key
+3. Display the new key for you to save
 
-**Save the new management key securely**:
+**Save the new management key securely IMMEDIATELY**:
+
+The key will only be shown once. If you lose it,
+you must reset the entire Yubikey.
+
 #+begin_src bash
-# Recommended: store in pass
+# Save to pass (recommended)
 pass insert ca/yubikey-management-key
-# Copy the key from ykman output and paste when
-# prompted
+# Paste the key from the ykman output when prompted
 #+end_src
 
-After this step, `ykman piv info` should NO LONGER
-show the warning.
+**Verify the change worked**:
+#+begin_src bash
+ykman piv info
+# Should NO LONGER show:
+#  "WARNING: Using default Management key!"
+#+end_src
 
 ** Step 1: Reset the Yubikey (Clean Slate)
 
@@ -767,22 +781,61 @@ rm /tmp/test.*
 
 ** Verify PIN/PUK/Mgmt Key
 
+*** Testing PIN
+
+⚠️ **Note**: `ykman piv info` is read-only and
+does NOT require PIN authentication. To actually
+test your PIN, use a command that accesses
+protected operations:
+
 #+begin_src bash
-# Test PIN
+# Method 1: Test PIN without changing anything
+ykman piv access change-pin
+# Enter your current PIN when prompted
+# Press Ctrl+C when asked for new PIN
+# (This confirms the PIN without changing it)
+
+# Method 2: Access protected key information
+ykman piv keys info 9c
+# Should prompt for PIN
+
+# Method 3: Clear PIN cache, then test
+ykman piv access logout
+# Now run any protected command:
+ykman piv keys info 9c
+# Should ask for PIN again
+#+end_src
+
+*** Testing PUK
+
+The PUK is only used to unblock a locked PIN. To
+test it:
+
+#+begin_src bash
+# Check current PIN retries
 ykman piv info
-# Enter PIN when prompted; should succeed
+# Shows: PIN tries remaining: X/3
 
-# Test PUK (only if needed to unblock PIN)
-# Lock PIN first (intentionally enter wrong
-# PIN 3 times)
-# Then: ykman piv access unblock-pin
+# If PIN is locked (0 retries), unblock with PUK
+ykman piv access unblock-pin
 # Enter PUK when prompted
+# Then set new PIN
 
-# Test Management Key
+# To intentionally test PUK (if PIN is not
+# locked):
+# 1. Enter wrong PIN 3 times
+# 2. Run: ykman piv access unblock-pin
+# 3. Enter PUK when prompted
+#+end_src
+
+*** Testing Management Key
+
+#+begin_src bash
+# Test management key without changing it
 ykman piv access change-management-key
 # Enter current management key when prompted
-# Press Ctrl+C to cancel (don't actually
-# change it)
+# Press Ctrl+C when asked for new key
+# (This confirms the key without changing it)
 #+end_src
 
 * Troubleshooting

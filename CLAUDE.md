@@ -305,6 +305,15 @@ manual. Update it when:
 - Documenting incidents or lessons learned
 - Updating team contacts or responsibilities
 
+## Claude Code Behavior
+
+**Package Installation**: Do not install system
+packages directly. Only recommend that packages
+should be installed and provide the installation
+commands for the user to run. The user controls
+their environment and can install packages when
+ready.
+
 ## Considerations for Future Work
 
 - **CRL Distribution**: Plan how intermediate CA
