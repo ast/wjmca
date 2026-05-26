@@ -72,7 +72,7 @@ signs your CSR it must include:
 keyUsage = critical, digitalSignature, \
   keyEncipherment, keyAgreement
 extendedKeyUsage = emailProtection
-subjectAltName = email:albin.stigo@gmail.com
+subjectAltName = email:you@example.org
 #+end_src
 
 Notes:
@@ -148,40 +148,40 @@ on machines where the Yubikey isn't plugged in.
 mkdir -p ~/.smime && chmod 700 ~/.smime
 openssl genpkey -algorithm EC \
   -pkeyopt ec_paramgen_curve:P-256 \
-  -out ~/.smime/albin.key
-chmod 400 ~/.smime/albin.key
+  -out ~/.smime/me.key
+chmod 400 ~/.smime/me.key
 
 # 2. Generate a CSR. The email address goes in
 #    both the Subject and the SAN — the CA recipe
 #    will move it into SAN-only at signing time.
-openssl req -new -key ~/.smime/albin.key \
-  -out /tmp/albin.csr \
-  -subj "/CN=Albin Stigo/emailAddress=albin.stigo@gmail.com"
+openssl req -new -key ~/.smime/me.key \
+  -out /tmp/me.csr \
+  -subj "/CN=Your Name/emailAddress=you@example.org"
 
 # 3. Take CSR to the intermediate CA workspace
-cp /tmp/albin.csr \
-  intermediate-ca/csr/albin_stigo_gmail_com.csr
+cp /tmp/me.csr \
+  intermediate-ca/csr/you_example_org.csr
 cd intermediate-ca
-just issue-smime-cert albin.stigo@gmail.com
+just issue-smime-cert you@example.org
 
 # 4. Retrieve the signed cert
-cp newcerts/albin_stigo_gmail_com.crt \
-  ~/.smime/albin.crt
+cp newcerts/you_example_org.crt \
+  ~/.smime/me.crt
 
 # 5. Build a chain file (for client trust display)
-cat ~/.smime/albin.crt \
+cat ~/.smime/me.crt \
   intermediate-ca/certs/intermediate-ca.crt \
   root-ca/certs/root-ca.crt \
-  > ~/.smime/albin-chain.pem
+  > ~/.smime/me-chain.pem
 
 # 6. Build a PKCS#12 bundle (key + cert + chain)
 #    for mail clients that prefer .p12 / .pfx
 openssl pkcs12 -export \
-  -inkey ~/.smime/albin.key \
-  -in ~/.smime/albin.crt \
+  -inkey ~/.smime/me.key \
+  -in ~/.smime/me.crt \
   -certfile intermediate-ca/certs/intermediate-ca.crt \
-  -out ~/.smime/albin.p12 \
-  -name "Albin Stigo S/MIME"
+  -out ~/.smime/me.p12 \
+  -name "Your Name S/MIME"
 #+end_src
 
 The ~.p12~ file is what Thunderbird, Evolution,
@@ -206,25 +206,25 @@ ykman piv keys generate \
   --pin-policy once \
   --touch-policy never \
   9d \
-  /tmp/albin-9d.pub.pem
+  /tmp/me-9d.pub.pem
 
 # 2. Build a CSR on the host, using the Yubikey
 #    as the signer via PKCS#11
-ykman piv certificates request 9d /tmp/albin.csr \
-  --subject "/CN=Albin Stigo/emailAddress=albin.stigo@gmail.com"
+ykman piv certificates request 9d /tmp/me.csr \
+  --subject "/CN=Your Name/emailAddress=you@example.org"
 
 # 3. Sign the CSR with the wjmca intermediate
 #    (same as Path A step 3)
-cp /tmp/albin.csr \
-  intermediate-ca/csr/albin_stigo_gmail_com.csr
+cp /tmp/me.csr \
+  intermediate-ca/csr/you_example_org.csr
 cd intermediate-ca
-just issue-smime-cert albin.stigo@gmail.com
+just issue-smime-cert you@example.org
 
 # 4. Import the signed cert back into slot 9d
 #    (the cert is stored alongside the key,
 #    accessible via PKCS#11 to mail clients)
 ykman piv certificates import 9d \
-  newcerts/albin_stigo_gmail_com.crt
+  newcerts/you_example_org.crt
 #+end_src
 
 After this, the Yubikey exposes a PKCS#11 token
@@ -263,7 +263,7 @@ gpgsm> q
 echo "<ROOT-FP> S" >> ~/.gnupg/trustlist.txt
 
 # Import your own software cert (Path A)
-gpgsm --import < ~/.smime/albin.p12
+gpgsm --import < ~/.smime/me.p12
 # Will prompt for the PKCS#12 passphrase
 
 # Verify
@@ -339,7 +339,7 @@ works but is legacy).
 #+begin_src bash
 # Build the cleartext message body
 cat > /tmp/body.txt <<EOF
-From: Albin <albin.stigo@gmail.com>
+From: Albin <you@example.org>
 To: recipient@example.org
 Subject: signed test
 MIME-Version: 1.0
@@ -351,8 +351,8 @@ EOF
 # Sign (detached, multipart/signed)
 openssl cms -sign \
   -in /tmp/body.txt \
-  -signer ~/.smime/albin.crt \
-  -inkey ~/.smime/albin.key \
+  -signer ~/.smime/me.crt \
+  -inkey ~/.smime/me.key \
   -certfile intermediate-ca/certs/intermediate-ca.crt \
   -out /tmp/signed.eml \
   -text \
@@ -393,8 +393,8 @@ the signature inside the envelope. Two pipelines:
 #+begin_src bash
 openssl cms -sign \
     -in /tmp/body.txt \
-    -signer ~/.smime/albin.crt \
-    -inkey ~/.smime/albin.key \
+    -signer ~/.smime/me.crt \
+    -inkey ~/.smime/me.key \
     -nodetach -md sha256 \
   | openssl cms -encrypt -aes256 \
     -out /tmp/signed-encrypted.eml \
@@ -418,7 +418,7 @@ openssl cms -verify \
 #+begin_src bash
 openssl cms -decrypt \
   -in /tmp/incoming-encrypted.eml \
-  -inkey ~/.smime/albin.key \
+  -inkey ~/.smime/me.key \
   -out /tmp/cleartext.eml
 #+end_src
 
@@ -513,10 +513,10 @@ async fn main() -> Result<()> {
         Content-Type: text/plain\r\n\r\n\
         Hello from a signed Rust program.\r\n";
 
-    let cert  = std::fs::read("/home/albin/.smime/albin.crt")?;
-    let key   = std::fs::read("/home/albin/.smime/albin.key")?;
+    let cert  = std::fs::read("/home/youruser/.smime/me.crt")?;
+    let key   = std::fs::read("/home/youruser/.smime/me.key")?;
     let chain = std::fs::read(
-        "/home/albin/src/wjmca/intermediate-ca/certs/intermediate-ca.crt"
+        "/home/youruser/src/wjmca/intermediate-ca/certs/intermediate-ca.crt"
     )?;
 
     let signed_mime = sign_smime(
@@ -536,7 +536,7 @@ async fn main() -> Result<()> {
 
     // lettre wants a Message; we build a raw one
     let email = Message::builder()
-        .from("Albin <albin.stigo@gmail.com>".parse()?)
+        .from("Albin <you@example.org>".parse()?)
         .to("recipient@example.org".parse()?)
         .subject("signed from rust")
         .header(header::ContentType::parse(
@@ -608,8 +608,8 @@ let signed = Command::new("openssl")
         "cms", "-sign",
         "-engine", "pkcs11", "-keyform", "engine",
         "-inkey", "pkcs11:object=KEY%20MANAGEMENT%20key;type=private",
-        "-signer", "/home/albin/.smime/albin.crt",
-        "-certfile", "/home/albin/src/wjmca/intermediate-ca/certs/intermediate-ca.crt",
+        "-signer", "/home/youruser/.smime/me.crt",
+        "-certfile", "/home/youruser/src/wjmca/intermediate-ca/certs/intermediate-ca.crt",
         "-md", "sha256",
     ])
     .stdin(/* body bytes */)
@@ -695,16 +695,16 @@ openssl handles the canonicalization.
 
 #+begin_src bash
 # Inspect a cert
-openssl x509 -in albin.crt -noout -text
+openssl x509 -in me.crt -noout -text
 
 # Verify a cert chains to wjmca
 openssl verify \
   -CAfile root-ca/certs/root-ca.crt \
   -untrusted intermediate-ca/certs/intermediate-ca.crt \
-  ~/.smime/albin.crt
+  ~/.smime/me.crt
 
 # Print PKCS#12 contents without importing
-openssl pkcs12 -info -in albin.p12 -noout
+openssl pkcs12 -info -in me.p12 -noout
 
 # CMS: sign / encrypt / verify / decrypt
 openssl cms -sign    -in body -signer cert -inkey key -out out

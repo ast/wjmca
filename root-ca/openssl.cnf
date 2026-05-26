@@ -59,7 +59,6 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always,issuer
 basicConstraints = critical, CA:true
 keyUsage = critical, digitalSignature, cRLSign, keyCertSign
-nameConstraints = permitted;DNS:example.org
 
 [ v3_intermediate_ca ]
 subjectKeyIdentifier = hash

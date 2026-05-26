@@ -1,0 +1,497 @@
+#+title: Internal TLS Certificates for LAN + Tailscale Servers
+#+author: Intermediate Manager
+#+date: 2026-05-26
+
+* Overview
+
+⚠️ Examples in this document use placeholder
+hostnames (~host01~, ~router01~, ~nas01~),
+placeholder LAN IPs (~10.0.0.x~), placeholder
+Tailscale IPs (~100.64.0.x~), and a placeholder
+tailnet (~<tailnet>.ts.net~). Replace with your
+real values when you run the commands. Do not
+commit the resulting CSRs or certs — they carry
+your real hostnames and IPs in their SAN fields
+and the repo's ~.gitignore~ already excludes the
+~newcerts/~ and ~csr/~ directories for that
+reason.
+
+This document covers issuing TLS server
+certificates from the [[./CLAUDE.md][wjmca intermediate CA]] to
+internal servers reached two ways:
+
+- By LAN IP (e.g. ~10.0.0.x~) from clients not
+  on the tailnet.
+- By Tailscale MagicDNS name
+  (~<host>.<tailnet>.ts.net~) and Tailscale IP
+  (~100.64.x.x~) from clients on the tailnet.
+
+Each cert carries multiple SANs so the same cert
+works on both access paths. No public CA, no
+public domain, no internal DNS server, no ACME
+infrastructure — just wjmca issuing certs and the
+wjmca root cert installed on each accessing
+client device.
+
+Target server count: under 10. Manual issuance,
+renewed on a calendar.
+
+* Pre-flight
+
+** 1. Root CA must not carry nameConstraints
+
+If the root certificate was issued with
+~nameConstraints = permitted;DNS:example.org~ in
+its config, every server cert with ~.ts.net~ or
+IP SANs will be rejected by strict validators.
+The wjmca root config no longer contains that
+line, but if the root was issued *before* the
+removal, the constraint is baked into the existing
+cert.
+
+Check:
+
+#+begin_src bash
+openssl x509 -in root-ca/certs/root-ca.crt \
+  -text -noout | grep -A2 "Name Constraints"
+#+end_src
+
+- No output → safe to proceed.
+- Output present → re-issue the root before
+  issuing any server certs (`just root-gen-cert`
+  after confirming the config has the
+  `nameConstraints` line removed), then resign
+  the intermediate (`just root-sign-intermediate`
+  and `just intermediate-install-cert`).
+
+** 2. SAN inventory
+
+Build a per-host table before issuing anything.
+Discover Tailscale information with:
+
+#+begin_src bash
+# Tailnet name + own host (first line of output)
+tailscale status
+
+# Tailscale IPv4 for a specific peer
+tailscale ip -4 <host>
+#+end_src
+
+Keep the resulting inventory *out of git* — it
+maps your internal naming to addresses. A local
+file under your home directory or in `pass` is
+fine; the table below is a placeholder template.
+
+| Host     | Short name | Tailscale MagicDNS              | LAN IP    | Tailscale IP |
+|----------+------------+---------------------------------+-----------+--------------|
+| host01   | host01     | host01.<tailnet>.ts.net         | 10.0.0.x  | 100.64.0.x   |
+| router01 | router01   | router01.<tailnet>.ts.net       | 10.0.0.x  | 100.64.0.x   |
+| nas01    | nas01      | nas01.<tailnet>.ts.net          | 10.0.0.x  | 100.64.0.x   |
+
+** 3. wjmca state
+
+Both CAs should be initialized and the
+intermediate cert installed before this workflow
+applies. Verify:
+
+#+begin_src bash
+just root-status
+just intermediate-status
+#+end_src
+
+Both must report key + cert present.
+
+* Cert Profile and Recipes (Reference)
+
+The intermediate now ships with a dedicated
+profile for TLS server certs:
+
+#+begin_src cfg
+[ v3_server_cert ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer
+basicConstraints       = critical, CA:false
+keyUsage               = critical, digitalSignature, keyEncipherment
+extendedKeyUsage       = serverAuth
+# subjectAltName supplied by CSR, copied via copy_extensions
+#+end_src
+
+And `[ CA_default ]` carries `copy_extensions =
+copy` so any SAN the CSR declares lands in the
+issued cert.
+
+Two recipes drive the workflow:
+
+| Recipe                                  | Purpose                              |
+|-----------------------------------------+--------------------------------------|
+| `intermediate-gen-server-csr cn sans`   | Generate server key + multi-SAN CSR  |
+| `intermediate-issue-server-cert csr`    | Sign the CSR with `v3_server_cert`   |
+
+** Algorithm choice
+
+Default is ECDSA P-256: small, fast, broadly
+compatible (including with older Proxmox web
+stacks, embedded routers, and every mainstream
+browser). Pass `algorithm=rsa` for RSA-3072 if a
+specific client has trouble with ECDSA, or
+`algorithm=ed25519` for modern stacks where
+Ed25519 server certs are accepted.
+
+* Issuance
+
+Concrete example for `host01` (substitute your
+real CN, tailnet, and IPs):
+
+#+begin_src bash
+# 1. Generate key + CSR with all four SANs
+just intermediate-gen-server-csr host01 \
+  "DNS:host01,DNS:host01.<tailnet>.ts.net,IP:10.0.0.x,IP:100.64.0.x"
+
+# 2. Issue the cert (default validity: 825 days)
+just intermediate-issue-server-cert \
+  intermediate-ca/csr/host01.csr
+
+# 3. Verify the SANs landed
+just inspect-cert \
+  intermediate-ca/newcerts/host01.crt \
+  | grep -E "Subject:|DNS:|IP Address:|Not After"
+
+# 4. Verify chain against the intermediate
+just verify-cert \
+  intermediate-ca/newcerts/host01.crt \
+  intermediate-ca/certs/intermediate-ca.crt
+#+end_src
+
+After step 3 the output should list every SAN you
+asked for. If any is missing, regenerate the CSR
+— signing without the desired SAN produces a
+useless cert and you'll have to revoke and re-do.
+
+** Building the fullchain file
+
+Most server software wants a single file
+containing the leaf cert followed by the
+intermediate (clients walk up to the root from
+their own trust store):
+
+#+begin_src bash
+cat intermediate-ca/newcerts/host01.crt \
+    intermediate-ca/certs/intermediate-ca.crt \
+  > /tmp/host01.fullchain.pem
+cp intermediate-ca/csr/host01.key /tmp/host01.key
+chmod 400 /tmp/host01.key
+#+end_src
+
+Distribute the fullchain + key to the target host
+(secure copy, then delete from `/tmp`).
+
+* Root CA Distribution
+
+Each device that needs to *verify* server certs
+must trust the wjmca root. The intermediate is
+delivered inside the cert chain on every TLS
+handshake; only the root needs installing.
+
+** Linux (system trust store)
+
+#+begin_src bash
+sudo cp root-ca/certs/root-ca.crt \
+  /usr/local/share/ca-certificates/wjmca-root.crt
+sudo update-ca-certificates
+#+end_src
+
+Test:
+#+begin_src bash
+openssl verify -CAfile \
+  /etc/ssl/certs/ca-certificates.crt \
+  intermediate-ca/newcerts/<host>.crt
+#+end_src
+
+** macOS
+
+#+begin_src bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  root-ca/certs/root-ca.crt
+#+end_src
+
+Safari, Chrome, and the system curl will now
+trust it. Firefox uses its own store (see below).
+
+** iOS
+
+1. Email or AirDrop the `root-ca.crt` to the
+   device.
+2. Open Settings → Profile Downloaded → Install.
+3. Trust under Settings → General → About →
+   Certificate Trust Settings → enable
+   "Root certificate" for wjmca.
+
+** Android
+
+1. Copy `root-ca.crt` to the device.
+2. Settings → Security → Encryption & credentials
+   → Install a certificate → CA certificate.
+3. Confirm the security warning.
+
+Note: Android does not let user-installed CAs
+intercept app TLS unless apps opt-in (since
+Android 7), so user-installed roots are usually
+fine for browsers but not for many native apps.
+
+** Firefox (any OS)
+
+Firefox ships its own trust store and ignores
+the system one.
+
+`about:preferences#privacy` → Certificates → View
+Certificates → Authorities → Import → select
+`root-ca.crt` → tick "Trust this CA to identify
+websites".
+
+* Per-Server Install
+
+Three concrete examples covering the target
+device classes.
+
+** EdgeRouter X
+
+EdgeRouter uses Vyatta-style CLI. The GUI cert
+lives under `/config/auth/`.
+
+#+begin_src bash
+# From your workstation, copy the cert and key
+# (substitute the router's real LAN IP)
+scp /tmp/router01.fullchain.pem \
+  ubnt@<router-ip>:/config/auth/
+scp /tmp/router01.key \
+  ubnt@<router-ip>:/config/auth/
+
+# SSH to the EdgeRouter
+ssh ubnt@<router-ip>
+configure
+set service gui cert-file \
+  /config/auth/router01.fullchain.pem
+set service gui key-file \
+  /config/auth/router01.key
+commit
+save
+exit
+#+end_src
+
+The GUI restarts automatically; reload the
+browser tab.
+
+** Proxmox VE
+
+Replace the proxy cert/key under
+`/etc/pve/local/`:
+
+#+begin_src bash
+scp /tmp/host01.fullchain.pem \
+  root@<host>:/etc/pve/local/pveproxy-ssl.pem
+scp /tmp/host01.key \
+  root@<host>:/etc/pve/local/pveproxy-ssl.key
+ssh root@<host> \
+  "chmod 640 /etc/pve/local/pveproxy-ssl.key && \
+   systemctl restart pveproxy"
+#+end_src
+
+`pveproxy` reloads, browser sees the new cert.
+The Proxmox API (port 8006) and the noVNC console
+both use this cert.
+
+** Generic Linux (nginx)
+
+#+begin_src bash
+sudo mkdir -p /etc/ssl/wjmca
+sudo cp /tmp/<host>.fullchain.pem \
+  /etc/ssl/wjmca/<host>.fullchain.pem
+sudo cp /tmp/<host>.key /etc/ssl/wjmca/<host>.key
+sudo chmod 400 /etc/ssl/wjmca/<host>.key
+#+end_src
+
+In the nginx server block:
+
+#+begin_src nginx
+ssl_certificate     /etc/ssl/wjmca/<host>.fullchain.pem;
+ssl_certificate_key /etc/ssl/wjmca/<host>.key;
+#+end_src
+
+Then `sudo nginx -t && sudo nginx -s reload`.
+
+** Apache equivalent
+
+#+begin_src apache
+SSLCertificateFile    /etc/ssl/wjmca/<host>.fullchain.pem
+SSLCertificateKeyFile /etc/ssl/wjmca/<host>.key
+#+end_src
+
+Then `sudo systemctl reload apache2`.
+
+* End-to-End Verification
+
+After installing on a host and the root on a
+client, hit each access path:
+
+#+begin_src bash
+# LAN-IP access
+curl -v https://<lan-ip>:8006 2>&1 \
+  | grep -E "subject:|SSL certificate verify"
+
+# Short hostname (only if /etc/hosts or LAN DNS
+# resolves it)
+curl -v https://<host>:8006 2>&1 \
+  | grep -E "subject:|SSL certificate verify"
+
+# Tailscale MagicDNS
+curl -v https://<host>.<tailnet>.ts.net:8006 2>&1 \
+  | grep -E "subject:|SSL certificate verify"
+#+end_src
+
+All three should report `SSL certificate verify
+ok`. If one fails:
+
+- "self signed certificate in certificate chain"
+  → root not installed on this client. Run the
+  install for the client's OS.
+- "Hostname mismatch" or similar → that SAN is
+  missing from the cert. Inspect:
+  `just inspect-cert ...newcerts/<host>.crt`.
+- "certificate has expired" → renew (see below).
+
+* Renewal
+
+Validity is 825 days (~2.25 years). For under-10
+endpoints, set a calendar reminder 60 days before
+the earliest `Not After` date and audit
+periodically:
+
+#+begin_src bash
+for f in intermediate-ca/newcerts/*.crt; do
+  echo "=== $f ==="
+  just check-expiry "$f"
+done
+#+end_src
+
+Renewal flow per host (recommend rotating the key
+too):
+
+#+begin_src bash
+# 1. Revoke the old cert (for the CRL)
+just intermediate-revoke \
+  intermediate-ca/newcerts/<host>.crt
+
+# 2. Remove the old CSR/key so the recipe runs clean
+rm intermediate-ca/csr/<host>.csr \
+   intermediate-ca/csr/<host>.key
+
+# 3. Reissue with the same SANs
+just intermediate-gen-server-csr <host> \
+  "DNS:<host>,DNS:<host>.<tailnet>.ts.net,IP:<lan-ip>,IP:<ts-ip>"
+just intermediate-issue-server-cert \
+  intermediate-ca/csr/<host>.csr
+
+# 4. Rebuild fullchain, redeploy to host (as above)
+
+# 5. Regenerate the CRL
+just intermediate-gen-crl
+#+end_src
+
+If a host's IP changes (e.g. you reassign LAN
+addressing), reissue immediately rather than
+waiting for the calendar — a wrong IP SAN means
+the cert doesn't validate over LAN IP access.
+
+* Operational Notes
+
+** copy_extensions = copy
+
+The intermediate now copies any extension from
+the CSR into the issued cert. This is what lets
+multi-SAN CSRs work, but it means signing a CSR
+from someone else *without inspecting it* lets
+them request arbitrary extensions (e.g.
+`CA:true`, `extendedKeyUsage=clientAuth,codeSigning`).
+The `issue-server-cert` recipe dumps the CSR
+subject and SANs before signing for that reason.
+Never sign an outside CSR with `-batch` and no
+review.
+
+** When to bypass the helper recipe
+
+If you need an exotic SAN type (e.g. an
+`otherName` for SIP, a URI SAN, etc.), build the
+CSR manually with openssl and feed it to
+`just intermediate-issue-server-cert <csr>`. The
+recipe accepts any CSR; only the generator
+recipe makes assumptions about which SAN types
+you want.
+
+** EdgeRouter X firmware quirks
+
+EdgeRouter's TLS stack has been finicky about
+some ECDSA curves and Ed25519 server certs in
+older firmware. ECDSA P-256 (the default) is
+known good on firmware 2.0.9+. If the router
+rejects the cert without a clear error, try
+reissuing with `algorithm=rsa`.
+
+** SAN templates per device class
+
+Roughly:
+
+| Class            | Typical SANs                                                    |
+|------------------+-----------------------------------------------------------------|
+| Proxmox host     | DNS:short, DNS:short.<tailnet>.ts.net, IP:lan, IP:ts            |
+| Router (UI)      | DNS:short, DNS:short.<tailnet>.ts.net, IP:lan-gateway, IP:ts    |
+| NAS / web app    | DNS:short, DNS:short.<tailnet>.ts.net, IP:lan, IP:ts            |
+| Internal API     | DNS:short.lan, DNS:short.<tailnet>.ts.net, IP:lan, IP:ts        |
+
+Wildcards (`DNS:*.<tailnet>.ts.net`) are tempting
+but reject under most server-cert policies and
+many TLS stacks don't accept wildcard SANs for
+server certs. Stick to explicit names.
+
+* Useful Commands Reference
+
+#+begin_src bash
+# Issuance
+just intermediate-gen-server-csr <cn> <sans> [algorithm]
+just intermediate-issue-server-cert <csr-path> [days]
+
+# Inspection
+just inspect-cert <cert-path>
+just verify-cert <cert-path> <ca-cert>
+just check-expiry <cert-path>
+
+# Revocation / CRL
+just intermediate-revoke <cert-path>
+just intermediate-gen-crl
+
+# Raw openssl handy ones
+openssl x509 -in cert.pem -noout -text \
+  | grep -E "Subject:|DNS:|IP Address:|Not Before|Not After"
+openssl x509 -in cert.pem -noout -ext subjectAltName
+openssl s_client -connect host:443 -showcerts < /dev/null
+#+end_src
+
+* Related Documentation
+
+- [[./CLAUDE.md][CLAUDE.md]] — Project overview
+- [[./README.org][README.org]] — CA operations manual
+- [[./yubikey.org][yubikey.org]] — Root CA YubiKey setup
+- RFC 5280 — X.509 PKI certificate profile
+- RFC 8738 — IP address SAN guidance for ACME
+  (not directly used here but useful background)
+
+* Version History
+
+| Version | Date       | Changes                  |
+|---------+------------+--------------------------|
+| 1.0     | 2026-05-26 | Initial server-cert flow |
+
+---
+
+*Maintained by: Intermediate Manager*
+*Last Updated: 2026-05-26*

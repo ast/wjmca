@@ -19,6 +19,27 @@ intermediate-ca/private/
 *.db.attr
 *.old
 
+# CA operational state that leaks hostnames / IPs
+# Every issued cert and CSR carries its target's
+# CN + subjectAltName; index.txt catalogues all
+# issued certs. Keep these local-only.
+intermediate-ca/newcerts/
+intermediate-ca/csr/
+intermediate-ca/index.txt*
+intermediate-ca/serial*
+intermediate-ca/crl/
+root-ca/newcerts/
+root-ca/csr/
+root-ca/index.txt*
+root-ca/serial*
+root-ca/crl/
+
+# Issued end-entity certs anywhere else
+# (still tracks public CA certs under certs/)
+*.crt
+!root-ca/certs/*.crt
+!intermediate-ca/certs/*.crt
+
 # Temporary files
 *.tmp
 *.bak

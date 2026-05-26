@@ -99,6 +99,14 @@ intermediate-gen-end-entity-csr cn st="Stockholm" c="SE" org="Organization" ou="
 intermediate-issue-cert csr-path:
     @just -f {{ INTERMEDIATE_CA_DIR }}/justfile issue-cert {{ csr-path }}
 
+# Generate key + multi-SAN CSR for a TLS server (LAN IP + Tailscale + hostnames)
+intermediate-gen-server-csr cn sans algorithm="ecdsa":
+    @just -f {{ INTERMEDIATE_CA_DIR }}/justfile gen-server-csr {{ cn }} {{ sans }} {{ algorithm }}
+
+# Issue TLS server certificate from a multi-SAN CSR (v3_server_cert profile)
+intermediate-issue-server-cert csr-path days="825":
+    @just -f {{ INTERMEDIATE_CA_DIR }}/justfile issue-server-cert {{ csr-path }} {{ days }}
+
 # Revoke a certificate
 intermediate-revoke cert-path reason="unspecified":
     @just -f {{ INTERMEDIATE_CA_DIR }}/justfile revoke {{ cert-path }} {{ reason }}

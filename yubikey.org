@@ -303,7 +303,7 @@ Shows:
 Example:
 #+begin_src
 YubiKey 5 NFC (5.4.3) [OTP+FIDO+CCID]
-Serial: 23027434
+Serial: 00000000
 #+end_src
 
 *** List All Keys on Device

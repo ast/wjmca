@@ -308,3 +308,123 @@ status:
         CERT_COUNT=$(grep -c "^V" "{{ CA_DIR }}/index.txt" 2>/dev/null || echo 0)
         echo "✓ Issued certificates: $CERT_COUNT"
     fi
+
+# Generate a server key + CSR with multi-SAN.
+# `sans` is an openssl-format SAN string, e.g.
+#   "DNS:host01,DNS:host01.<tailnet>.ts.net,IP:<lan>,IP:<ts>"
+# `algorithm` is one of: ecdsa (P-256, default), rsa (3072), ed25519.
+gen-server-csr cn sans algorithm="ecdsa":
+    #!/bin/bash
+    set -euo pipefail
+    mkdir -p "{{ CSR_DIR }}"
+
+    CSR_FILE="{{ CSR_DIR }}/{{ cn }}.csr"
+    KEY_FILE="{{ CSR_DIR }}/{{ cn }}.key"
+
+    if [[ -f "$CSR_FILE" ]]; then
+        echo "⚠️  CSR already exists: $CSR_FILE"
+        exit 1
+    fi
+    if [[ -f "$KEY_FILE" ]]; then
+        echo "⚠️  Key already exists: $KEY_FILE"
+        exit 1
+    fi
+
+    echo "🔐 Generating server key for: {{ cn }} ({{ algorithm }})"
+    case "{{ algorithm }}" in
+        ecdsa)
+            openssl genpkey -algorithm EC \
+              -pkeyopt ec_paramgen_curve:P-256 \
+              -out "$KEY_FILE"
+            ;;
+        rsa)
+            openssl genpkey -algorithm RSA \
+              -pkeyopt rsa_keygen_bits:3072 \
+              -out "$KEY_FILE"
+            ;;
+        ed25519)
+            openssl genpkey -algorithm ED25519 -out "$KEY_FILE"
+            ;;
+        *)
+            echo "❌ Unknown algorithm: {{ algorithm }}"
+            echo "   Valid: ecdsa | rsa | ed25519"
+            exit 1
+            ;;
+    esac
+    chmod 400 "$KEY_FILE"
+
+    SAN_CONF=$(mktemp)
+    trap 'rm -f "$SAN_CONF"' EXIT
+    cat > "$SAN_CONF" <<EOF
+    [ req ]
+    distinguished_name = dn
+    req_extensions     = ext
+    prompt             = no
+
+    [ dn ]
+    CN = {{ cn }}
+    O  = Organization
+
+    [ ext ]
+    subjectAltName   = {{ sans }}
+    keyUsage         = critical, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+    EOF
+
+    echo "📝 Generating CSR with SANs: {{ sans }}"
+    openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" -config "$SAN_CONF"
+
+    echo "✓ Key generated: $KEY_FILE"
+    echo "✓ CSR generated: $CSR_FILE"
+    echo ""
+    echo "Next: just intermediate-issue-server-cert {{ CSR_DIR }}/{{ cn }}.csr"
+
+# Issue a server certificate from a multi-SAN CSR.
+# Prints the CSR subject + SANs before signing so the operator can
+# verify what will be committed to the cert (copy_extensions = copy
+# is enabled CA-wide, so SAN flows from CSR into the cert verbatim).
+issue-server-cert csr-file days="825":
+    #!/bin/bash
+    set -euo pipefail
+
+    if [[ ! -f "{{ csr-file }}" ]]; then
+        echo "❌ CSR file not found: {{ csr-file }}"
+        exit 1
+    fi
+
+    KEY_FILE="{{ PRIVATE_DIR }}/intermediate-ca.key"
+    if [[ ! -f "$KEY_FILE" ]]; then
+        echo "❌ CA key not found: $KEY_FILE"
+        exit 1
+    fi
+
+    CERT_NAME=$(basename "{{ csr-file }}" .csr)
+    CERT_OUT="{{ NEWCERTS_DIR }}/${CERT_NAME}.crt"
+
+    if [[ -f "$CERT_OUT" ]]; then
+        echo "⚠️  Certificate already exists: $CERT_OUT"
+        exit 1
+    fi
+
+    echo "🔍 CSR contents to be signed:"
+    openssl req -in "{{ csr-file }}" -noout -subject
+    openssl req -in "{{ csr-file }}" -noout -text \
+      | grep -E "DNS:|IP Address:" || true
+    echo ""
+
+    PASSPHRASE=$(pass show ca/intermediate-passphrase 2>/dev/null)
+
+    echo "✍️  Issuing server certificate (validity: {{ days }} days)..."
+    openssl ca -config "{{ OPENSSL_CONF }}" \
+      -extensions v3_server_cert \
+      -days {{ days }} \
+      -notext -md sha256 \
+      -passin pass:"$PASSPHRASE" \
+      -in "{{ csr-file }}" \
+      -out "$CERT_OUT" \
+      -batch
+
+    echo "✓ Certificate issued: $CERT_OUT"
+    echo ""
+    echo "Verify SANs landed correctly:"
+    echo "  just inspect-cert $CERT_OUT | grep -E 'DNS:|IP Address:'"

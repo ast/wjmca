@@ -21,6 +21,13 @@ unique_subject   = no
 policy           = policy_loose
 default_days     = 365
 
+# CSR-supplied extensions (e.g. subjectAltName) are copied
+# verbatim into the issued certificate. Required for the
+# v3_server_cert profile so multi-SAN CSRs work.
+# WARNING: this is CA-wide. Inspect any third-party CSR
+# with `openssl req -text -noout` before signing.
+copy_extensions  = copy
+
 [ policy_loose ]
 countryName             = optional
 stateOrProvinceName     = optional
@@ -83,3 +90,12 @@ authorityKeyIdentifier = keyid:always,issuer
 basicConstraints = critical, CA:false
 keyUsage = critical, digitalSignature
 extendedKeyUsage = critical, OCSPSigning
+
+[ v3_server_cert ]
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid:always,issuer
+basicConstraints       = critical, CA:false
+keyUsage               = critical, digitalSignature, keyEncipherment
+extendedKeyUsage       = serverAuth
+# subjectAltName is supplied by the CSR and copied via copy_extensions
+# crlDistributionPoints = URI:http://crl.wjmca.local/intermediate.crl
