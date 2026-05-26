@@ -1,0 +1,752 @@
+#+title: S/MIME Email on Linux
+#+author: Root Keeper
+#+date: 2026-05-26
+
+* Overview
+
+This document covers signing and encrypting email
+using **S/MIME** (Secure/Multipurpose Internet Mail
+Extensions) on Linux. It targets:
+
+- An end-entity certificate issued by the
+  [[./CLAUDE.md][wjmca intermediate CA]] and bound to your email
+  address.
+- The private key held either in a software
+  keystore (~/.cert directory) or on the Yubikey
+  (PIV slot 9d).
+- Day-to-day reading/writing in **neomutt**.
+- Scripting and CI through raw **openssl cms**.
+- Programmatic sending in **Rust** via ~lettre~ +
+  the ~openssl~ crate.
+
+* S/MIME in 60 Seconds
+
+S/MIME is X.509-based email crypto. It uses the
+same CA → intermediate → end-entity chain as TLS,
+plus a few email-specific certificate extensions.
+Two operations:
+
+| Operation       | Wire format                                   |
+|-----------------+-----------------------------------------------|
+| Signed message  | ~multipart/signed~ with detached PKCS#7 sig   |
+|                 | (or ~application/pkcs7-mime~ opaque-signed)   |
+| Encrypted msg   | ~application/pkcs7-mime; smime-type=enveloped-data~ |
+
+Under the hood both use **CMS** (Cryptographic
+Message Syntax, RFC 5652 — the modern name for
+PKCS#7). To send an encrypted mail you need the
+recipient's *public* S/MIME certificate; to read
+one, you need your own *private* key on the box
+you're reading on.
+
+** Why S/MIME for wjmca
+
+- Reuses your CA. Your intermediate CA issues a
+  cert for your email address; recipients who
+  trust the wjmca root automatically verify your
+  signatures.
+- Native support in macOS Mail, iOS Mail, Outlook,
+  Thunderbird, Evolution, neomutt, gpgsm.
+- Cert distribution is automatic: every signed
+  mail carries your cert in the signature blob,
+  so once you send someone a signed mail they can
+  reply encrypted with no out-of-band exchange.
+
+** S/MIME vs OpenPGP/MIME
+
+S/MIME wins on tooling ubiquity (every corporate
+mail client supports it; PGP support outside
+Thunderbird is rough). OpenPGP wins on key
+sovereignty (no CA, web of trust) and on existing
+GnuPG tooling. The two are not interoperable —
+you can run both in parallel but a given message
+is one or the other.
+
+* The S/MIME Certificate Profile
+
+An S/MIME end-entity certificate has a specific
+extension profile. When the wjmca intermediate
+signs your CSR it must include:
+
+#+begin_src
+keyUsage = critical, digitalSignature, \
+  keyEncipherment, keyAgreement
+extendedKeyUsage = emailProtection
+subjectAltName = email:albin.stigo@gmail.com
+#+end_src
+
+Notes:
+- ~keyEncipherment~ is for RSA keys (the sender
+  uses your public key to encrypt the symmetric
+  content-encryption key).
+- ~keyAgreement~ is for ECC keys (sender does
+  ECDH to derive the content-encryption key).
+- For ECC keys you can drop ~keyEncipherment~; we
+  include both above so the same template works
+  for RSA or ECC.
+- ~emailProtection~ is OID 1.3.6.1.5.5.7.3.4. It
+  is what tells mail clients "this cert is for
+  email", as opposed to TLS server / TLS client.
+- The ~Subject Alternative Name~ ~rfc822Name~
+  field is what mail clients match against the
+  ~From:~ header. The Subject DN's CN does not
+  need to be the email address (though it often
+  is) — modern clients only look at the SAN.
+
+** Add an "email cert" Recipe to wjmca
+
+In ~intermediate-ca/openssl.cnf~, add or confirm:
+
+#+begin_src cfg
+[ smime_cert ]
+basicConstraints       = CA:FALSE
+keyUsage               = critical, digitalSignature, \
+                         keyEncipherment, keyAgreement
+extendedKeyUsage       = emailProtection
+subjectKeyIdentifier   = hash
+authorityKeyIdentifier = keyid,issuer
+subjectAltName         = email:move
+#+end_src
+
+The literal ~email:move~ tells openssl to pull
+the email address from the CSR's subject and
+relocate it into the SAN, removing it from the
+DN. This is the canonical RFC 5750 behaviour.
+
+In ~intermediate-ca/justfile~, add:
+
+#+begin_src justfile
+# Issue an S/MIME (email) certificate for `email`
+issue-smime-cert email:
+    #!/bin/bash
+    set -euo pipefail
+    EMAIL="{{email}}"
+    NAME=$(echo "$EMAIL" | sed 's/[@.]/_/g')
+    openssl ca \
+      -batch \
+      -in csr/${NAME}.csr \
+      -out newcerts/${NAME}.crt \
+      -extensions smime_cert \
+      -passin pass:"$(pass show ca/intermediate-passphrase)" \
+      -config openssl.cnf
+    echo "✓ Issued S/MIME cert: newcerts/${NAME}.crt"
+#+end_src
+
+* Getting Your S/MIME Certificate
+
+Two paths: software keystore (simpler) or Yubikey
+PIV slot 9d (key never leaves the device). Pick
+one — or follow both if you want a software cert
+on machines where the Yubikey isn't plugged in.
+
+** Path A: Software Keystore
+
+#+begin_src bash
+# 1. Generate a private key (ECC P-256 recommended;
+#    use RSA-3072 if you need to interop with
+#    very old clients)
+mkdir -p ~/.smime && chmod 700 ~/.smime
+openssl genpkey -algorithm EC \
+  -pkeyopt ec_paramgen_curve:P-256 \
+  -out ~/.smime/albin.key
+chmod 400 ~/.smime/albin.key
+
+# 2. Generate a CSR. The email address goes in
+#    both the Subject and the SAN — the CA recipe
+#    will move it into SAN-only at signing time.
+openssl req -new -key ~/.smime/albin.key \
+  -out /tmp/albin.csr \
+  -subj "/CN=Albin Stigo/emailAddress=albin.stigo@gmail.com"
+
+# 3. Take CSR to the intermediate CA workspace
+cp /tmp/albin.csr \
+  intermediate-ca/csr/albin_stigo_gmail_com.csr
+cd intermediate-ca
+just issue-smime-cert albin.stigo@gmail.com
+
+# 4. Retrieve the signed cert
+cp newcerts/albin_stigo_gmail_com.crt \
+  ~/.smime/albin.crt
+
+# 5. Build a chain file (for client trust display)
+cat ~/.smime/albin.crt \
+  intermediate-ca/certs/intermediate-ca.crt \
+  root-ca/certs/root-ca.crt \
+  > ~/.smime/albin-chain.pem
+
+# 6. Build a PKCS#12 bundle (key + cert + chain)
+#    for mail clients that prefer .p12 / .pfx
+openssl pkcs12 -export \
+  -inkey ~/.smime/albin.key \
+  -in ~/.smime/albin.crt \
+  -certfile intermediate-ca/certs/intermediate-ca.crt \
+  -out ~/.smime/albin.p12 \
+  -name "Albin Stigo S/MIME"
+#+end_src
+
+The ~.p12~ file is what Thunderbird, Evolution,
+macOS Keychain, and most other clients import.
+Protect it with a strong passphrase at export
+time.
+
+** Path B: Yubikey PIV Slot 9d
+
+Slot 9d is the NIST PIV "Key Management" slot —
+the right slot for email decryption keys. (Slot
+9c is "Digital Signature" but its PIN policy is
+strict: PIN must be re-entered for every
+operation. 9d allows ~once~, matching email
+usage.)
+
+#+begin_src bash
+# 1. Generate the key on-device. The private key
+#    never leaves the Yubikey.
+ykman piv keys generate \
+  --algorithm ECCP256 \
+  --pin-policy once \
+  --touch-policy never \
+  9d \
+  /tmp/albin-9d.pub.pem
+
+# 2. Build a CSR on the host, using the Yubikey
+#    as the signer via PKCS#11
+ykman piv certificates request 9d /tmp/albin.csr \
+  --subject "/CN=Albin Stigo/emailAddress=albin.stigo@gmail.com"
+
+# 3. Sign the CSR with the wjmca intermediate
+#    (same as Path A step 3)
+cp /tmp/albin.csr \
+  intermediate-ca/csr/albin_stigo_gmail_com.csr
+cd intermediate-ca
+just issue-smime-cert albin.stigo@gmail.com
+
+# 4. Import the signed cert back into slot 9d
+#    (the cert is stored alongside the key,
+#    accessible via PKCS#11 to mail clients)
+ykman piv certificates import 9d \
+  newcerts/albin_stigo_gmail_com.crt
+#+end_src
+
+After this, the Yubikey exposes a PKCS#11 token
+whose key handle in slot 9d is the S/MIME private
+key. Configure mail clients to use it via the
+OpenSC PKCS#11 module:
+
+#+begin_src
+/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so
+#+end_src
+
+* neomutt Setup
+
+We'll wire neomutt to **gpgsm** (the X.509 cousin
+of gpg, part of GnuPG). gpgsm gives us:
+
+- Shared agent / pinentry with the GPG setup
+- Built-in support for Yubikey PIV via scdaemon
+  (and via PKCS#11 with a small config)
+- The same ~--card-status~-style ergonomics
+
+** Import Trust Anchors and Your Cert
+
+#+begin_src bash
+# Trust the wjmca root and intermediate
+gpgsm --import < root-ca/certs/root-ca.crt
+gpgsm --import < \
+  intermediate-ca/certs/intermediate-ca.crt
+
+# Mark the root as trusted (interactive)
+gpgsm --edit-key <root-fingerprint>
+gpgsm> trust
+gpgsm> q
+# Or, non-interactive: append the fingerprint to
+# ~/.gnupg/trustlist.txt followed by a single 'S'.
+echo "<ROOT-FP> S" >> ~/.gnupg/trustlist.txt
+
+# Import your own software cert (Path A)
+gpgsm --import < ~/.smime/albin.p12
+# Will prompt for the PKCS#12 passphrase
+
+# Verify
+gpgsm --list-secret-keys
+#+end_src
+
+For the Yubikey path (Path B), gpgsm needs to see
+the card. Easiest way: add a PKCS#11 scd config:
+
+#+begin_src
+# ~/.gnupg/scdaemon.conf
+disable-ccid           # let pcscd own the reader
+pcsc-shared
+#+end_src
+
+Then ~gpgconf --kill scdaemon~ and ~gpgsm
+--learn-card~ — gpgsm enumerates the certs on the
+card and exposes them as secret keys.
+
+** neomutt Configuration
+
+Add to ~~/.config/neomutt/neomuttrc~:
+
+#+begin_src
+# Use GPGME-backed S/MIME (gpgsm under the hood)
+set crypt_use_gpgme = yes
+
+# Default behaviour for outgoing mail
+set crypt_autosign = yes        # sign by default
+set crypt_replyencrypt = yes    # encrypt replies
+                                # to encrypted mail
+set crypt_replysign = yes
+set crypt_replysignencrypted = yes
+set crypt_verify_sig = yes
+
+# Which key to sign with (your fingerprint from
+# `gpgsm --list-secret-keys`)
+set smime_default_key = "0xYOUR-CERT-FINGERPRINT"
+
+# Pinentry through the terminal (so it works
+# inside a tmux/SSH session)
+set pgp_use_gpg_agent = yes
+
+# Save sent mail's encrypted form (not the cleartext)
+set fcc_clear = no
+#+end_src
+
+Reload neomutt; signing and encryption now happen
+inline. Keybindings (default):
+
+| Key   | Action                                  |
+|-------+-----------------------------------------|
+| ~p~   | Open the pgp/crypto menu on compose     |
+| ~s~   | Toggle sign                             |
+| ~e~   | Toggle encrypt                          |
+| ~b~   | Toggle both                             |
+| ~c~   | Clear all crypto                        |
+
+When you receive a signed or encrypted message,
+neomutt verifies/decrypts automatically and
+displays a status line. Press ~Ctrl-K~ on a
+verified message to view signature details.
+
+* Raw openssl S/MIME Workflows
+
+For scripts, cron jobs, CI pipelines, or learning
+the primitives directly. Modern openssl uses the
+~cms~ subcommand (the ~smime~ subcommand still
+works but is legacy).
+
+** Sign a Message
+
+#+begin_src bash
+# Build the cleartext message body
+cat > /tmp/body.txt <<EOF
+From: Albin <albin.stigo@gmail.com>
+To: recipient@example.org
+Subject: signed test
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Hello, this is a signed message.
+EOF
+
+# Sign (detached, multipart/signed)
+openssl cms -sign \
+  -in /tmp/body.txt \
+  -signer ~/.smime/albin.crt \
+  -inkey ~/.smime/albin.key \
+  -certfile intermediate-ca/certs/intermediate-ca.crt \
+  -out /tmp/signed.eml \
+  -text \
+  -md sha256
+
+# /tmp/signed.eml is now an RFC-822 message
+# ready to feed into msmtp or sendmail
+msmtp -t < /tmp/signed.eml
+#+end_src
+
+For an opaque (single-part) signature add
+~-nodetach~. Detached is generally preferred
+because it stays readable to clients that don't
+do S/MIME.
+
+** Encrypt a Message
+
+You need the recipient's public S/MIME cert
+(usually extracted from a previous signed mail
+they sent you).
+
+#+begin_src bash
+openssl cms -encrypt \
+  -in /tmp/body.txt \
+  -out /tmp/encrypted.eml \
+  -aes256 \
+  /path/to/recipient-cert.pem
+#+end_src
+
+The trailing positional args are recipient certs;
+you can list multiple to encrypt to a group.
+
+** Sign Then Encrypt (Real Workflow)
+
+S/MIME convention is to sign first, then encrypt
+the signature inside the envelope. Two pipelines:
+
+#+begin_src bash
+openssl cms -sign \
+    -in /tmp/body.txt \
+    -signer ~/.smime/albin.crt \
+    -inkey ~/.smime/albin.key \
+    -nodetach -md sha256 \
+  | openssl cms -encrypt -aes256 \
+    -out /tmp/signed-encrypted.eml \
+    /path/to/recipient-cert.pem
+#+end_src
+
+** Verify a Signed Message
+
+#+begin_src bash
+openssl cms -verify \
+  -in /tmp/incoming.eml \
+  -CAfile <(cat root-ca/certs/root-ca.crt \
+            intermediate-ca/certs/intermediate-ca.crt) \
+  -out /tmp/verified-body.txt
+# Exit code 0 ⇒ signature valid
+# Adds Signer Info to stderr
+#+end_src
+
+** Decrypt a Message
+
+#+begin_src bash
+openssl cms -decrypt \
+  -in /tmp/incoming-encrypted.eml \
+  -inkey ~/.smime/albin.key \
+  -out /tmp/cleartext.eml
+#+end_src
+
+For Yubikey-held keys, point at the PKCS#11
+engine instead of ~-inkey~:
+
+#+begin_src bash
+openssl cms -decrypt \
+  -in /tmp/incoming-encrypted.eml \
+  -engine pkcs11 -keyform engine \
+  -inkey "pkcs11:object=KEY%20MANAGEMENT%20key;type=private" \
+  -out /tmp/cleartext.eml
+#+end_src
+
+The PKCS#11 URI is the OpenSC-format URI for slot
+9d; ~p11tool --list-all~ prints the canonical URI
+for any object on the token.
+
+** Extract a Cert from a Received Signed Mail
+
+So you can encrypt replies to that person:
+
+#+begin_src bash
+openssl cms -verify \
+  -in /path/to/signed-mail.eml \
+  -CAfile their-issuer-chain.pem \
+  -signer /tmp/their-cert.pem \
+  -noout
+# Now /tmp/their-cert.pem holds their pubkey cert
+#+end_src
+
+* Programmatic Sending in Rust
+
+Two crates do the heavy lifting:
+
+- ~lettre~ — build and send MIME / SMTP. Doesn't
+  do crypto.
+- ~openssl~ — Rust bindings to OpenSSL libcrypto,
+  including ~Pkcs7~ for CMS.
+
+** Cargo.toml
+
+#+begin_src toml
+[dependencies]
+lettre = { version = "0.11", default-features = false, \
+  features = ["smtp-transport", "rustls-tls", \
+              "builder", "tokio1-rustls-tls"] }
+openssl = "0.10"
+anyhow = "1"
+tokio  = { version = "1", features = ["macros", "rt-multi-thread"] }
+#+end_src
+
+** Signed-Then-Sent Email
+
+#+begin_src rust
+use anyhow::Result;
+use lettre::message::{header, MultiPart, SinglePart};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{Message, SmtpTransport, Transport};
+use openssl::pkcs7::{Pkcs7, Pkcs7Flags};
+use openssl::pkey::PKey;
+use openssl::stack::Stack;
+use openssl::x509::X509;
+
+fn sign_smime(
+    body: &[u8],
+    cert_pem: &[u8],
+    key_pem: &[u8],
+    chain_pem: &[u8],
+) -> Result<Vec<u8>> {
+    let cert  = X509::from_pem(cert_pem)?;
+    let key   = PKey::private_key_from_pem(key_pem)?;
+    let chain = X509::stack_from_pem(chain_pem)?;
+    let mut certs = Stack::new()?;
+    for c in chain { certs.push(c)?; }
+
+    // DETACHED + S/MIME-canonicalized text
+    let flags = Pkcs7Flags::DETACHED
+              | Pkcs7Flags::TEXT
+              | Pkcs7Flags::STREAM;
+    let p7 = Pkcs7::sign(
+        &cert, &key, &certs, body, flags
+    )?;
+    // SMIME-encoded: produces a full
+    // multipart/signed body
+    Ok(p7.to_smime(body, flags)?)
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let inner_body = b"Subject: signed from rust\r\n\
+        Content-Type: text/plain\r\n\r\n\
+        Hello from a signed Rust program.\r\n";
+
+    let cert  = std::fs::read("/home/albin/.smime/albin.crt")?;
+    let key   = std::fs::read("/home/albin/.smime/albin.key")?;
+    let chain = std::fs::read(
+        "/home/albin/src/wjmca/intermediate-ca/certs/intermediate-ca.crt"
+    )?;
+
+    let signed_mime = sign_smime(
+        inner_body, &cert, &key, &chain
+    )?;
+
+    // The signed_mime is a complete RFC822 message
+    // body. We feed it straight to SMTP.
+    let creds = Credentials::new(
+        "smtp-user".into(), "smtp-pass".into()
+    );
+    let mailer = SmtpTransport::starttls_relay(
+        "smtp.example.org"
+    )?
+        .credentials(creds)
+        .build();
+
+    // lettre wants a Message; we build a raw one
+    let email = Message::builder()
+        .from("Albin <albin.stigo@gmail.com>".parse()?)
+        .to("recipient@example.org".parse()?)
+        .subject("signed from rust")
+        .header(header::ContentType::parse(
+            "multipart/signed; \
+             protocol=\"application/pkcs7-signature\"; \
+             micalg=sha-256; \
+             boundary=\"smime-boundary\""
+        )?)
+        .body(signed_mime)?;
+
+    mailer.send(&email)?;
+    Ok(())
+}
+#+end_src
+
+** Encrypted Email (To One Recipient)
+
+Same shape, replace ~sign_smime~ with:
+
+#+begin_src rust
+use openssl::pkcs7::{Pkcs7, Pkcs7Flags};
+use openssl::symm::Cipher;
+use openssl::stack::Stack;
+use openssl::x509::X509;
+use anyhow::Result;
+
+fn encrypt_smime(
+    body: &[u8],
+    recipient_cert_pem: &[u8],
+) -> Result<Vec<u8>> {
+    let cert = X509::from_pem(recipient_cert_pem)?;
+    let mut certs = Stack::new()?;
+    certs.push(cert)?;
+
+    let flags = Pkcs7Flags::STREAM | Pkcs7Flags::TEXT;
+    let p7 = Pkcs7::encrypt(
+        &certs, body, Cipher::aes_256_cbc(), flags
+    )?;
+    Ok(p7.to_smime(body, flags)?)
+}
+#+end_src
+
+The ~ContentType~ header for encrypted bodies is
+~application/pkcs7-mime;
+smime-type=enveloped-data; name="smime.p7m"~.
+
+** Yubikey-Backed Signing
+
+The ~openssl~ crate doesn't talk to PKCS#11
+directly. Two practical paths:
+
+1. Call the ~openssl~ CLI with the ~pkcs11~
+   engine, from Rust via ~std::process::Command~
+   — simplest, no extra deps.
+2. Use the ~cryptoki~ crate to talk to OpenSC
+   PKCS#11, build a PKCS#7 SignedData manually,
+   then hand it to lettre. More code, but
+   keeps the secret in-process.
+
+For automation cron-style scripts where the
+Yubikey is plugged in, option (1) is hard to
+beat:
+
+#+begin_src rust
+use std::process::Command;
+
+let signed = Command::new("openssl")
+    .args([
+        "cms", "-sign",
+        "-engine", "pkcs11", "-keyform", "engine",
+        "-inkey", "pkcs11:object=KEY%20MANAGEMENT%20key;type=private",
+        "-signer", "/home/albin/.smime/albin.crt",
+        "-certfile", "/home/albin/src/wjmca/intermediate-ca/certs/intermediate-ca.crt",
+        "-md", "sha256",
+    ])
+    .stdin(/* body bytes */)
+    .output()?;
+#+end_src
+
+* Receiving Mail: Trust Setup
+
+For your mail client to *verify* signatures from
+others using wjmca-issued certs, the box doing
+the verification needs:
+
+- Trust the wjmca root cert.
+- Either the intermediate cert in its local store,
+  or rely on the intermediate being shipped inside
+  the signature blob (mail clients usually include
+  it, but not always).
+
+For *external* correspondents using public-CA
+certs (e.g. Actalis), no setup is needed on your
+side — those CAs are pre-trusted by gpgsm /
+neomutt out of the box via the Mozilla CA bundle
+(~/etc/ssl/certs/ca-certificates.crt~).
+
+For your correspondents to verify *your*
+signatures, they must trust the wjmca root. Two
+options:
+
+1. They install your ~root-ca.crt~ into their
+   client's trust store.
+2. You also get an Actalis-issued S/MIME cert
+   (free, individual) and use that for external
+   mail. wjmca-issued for internal, Actalis-issued
+   for external.
+
+* Troubleshooting
+
+** "Bad signature" on a message that should verify
+
+The signing time differs from the cert's
+~Not Before~ — or the cert chain isn't reaching a
+trusted anchor.
+
+#+begin_src bash
+# Pull the signer cert and inspect
+openssl cms -verify -in suspect.eml -CAfile chain.pem \
+  -signer /tmp/sig-cert.pem -noout 2>&1 | head
+
+openssl x509 -in /tmp/sig-cert.pem -noout -text \
+  | grep -E "Not Before|Not After|Subject:|Issuer:"
+#+end_src
+
+** "Sender cert not found" in neomutt when encrypting
+
+You don't have the recipient's cert locally. Ask
+them for a signed mail first; the cert auto-imports
+into gpgsm. Or import a ~.pem~ manually:
+
+#+begin_src bash
+gpgsm --import their-cert.pem
+#+end_src
+
+** PIN prompt loops with the Yubikey
+
+Usually means another process holds the card.
+Restart pcscd and scdaemon:
+
+#+begin_src bash
+gpgconf --kill scdaemon
+sudo systemctl restart pcscd
+gpgsm --learn-card
+#+end_src
+
+** "wrong tag" / parse errors
+
+The message has CRLF/LF line-ending issues.
+~openssl cms~ is strict about ~\r\n~ in canonical
+form. Run the body through ~unix2dos~ or set the
+~-text~ flag at sign time (we did above) so
+openssl handles the canonicalization.
+
+* Useful Commands Reference
+
+#+begin_src bash
+# Inspect a cert
+openssl x509 -in albin.crt -noout -text
+
+# Verify a cert chains to wjmca
+openssl verify \
+  -CAfile root-ca/certs/root-ca.crt \
+  -untrusted intermediate-ca/certs/intermediate-ca.crt \
+  ~/.smime/albin.crt
+
+# Print PKCS#12 contents without importing
+openssl pkcs12 -info -in albin.p12 -noout
+
+# CMS: sign / encrypt / verify / decrypt
+openssl cms -sign    -in body -signer cert -inkey key -out out
+openssl cms -encrypt -in body -aes256 -out out recipient.crt
+openssl cms -verify  -in mail -CAfile chain -out body
+openssl cms -decrypt -in mail -inkey key   -out body
+
+# gpgsm cert management
+gpgsm --import chain.pem
+gpgsm --list-keys
+gpgsm --list-secret-keys
+gpgsm --learn-card
+gpgsm --delete-keys <fpr>
+
+# neomutt crypto status
+:set crypt?
+:set smime_default_key?
+
+# Yubikey PIV slot 9d
+ykman piv keys info 9d
+ykman piv certificates export 9d -
+p11tool --list-all "pkcs11:token=YubiKey%20PIV"
+#+end_src
+
+* Related Documentation
+
+- [[./CLAUDE.md][CLAUDE.md]] — Project overview, role of CA
+- [[./yubikey.org][yubikey.org]] — CA-signing Yubikey setup (PIV)
+- [[./yubikey-gnupg.org][yubikey-gnupg.org]] — GnuPG on Yubikey
+- RFC 5750 — S/MIME v3.2 Certificate Handling
+- RFC 5751 — S/MIME v3.2 Message Specification
+- RFC 5652 — Cryptographic Message Syntax (CMS)
+- lettre docs: https://docs.rs/lettre
+- openssl crate docs: https://docs.rs/openssl
+
+* Version History
+
+| Version | Date       | Changes                |
+|---------+------------+------------------------|
+| 1.0     | 2026-05-26 | Initial S/MIME guide   |
+
+---
+
+*Maintained by: Root Keeper*
+*Last Updated: 2026-05-26*
