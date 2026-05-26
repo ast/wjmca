@@ -1,0 +1,248 @@
+#+title: Yubikey Login on Ubuntu
+#+author: Root Keeper
+#+date: 2026-05-26
+
+* Overview
+
+This document covers using a Yubikey to authenticate
+to an Ubuntu desktop or server — distinct from the
+[[./yubikey.org][CA-signing Yubikey setup]]. The two roles use
+different applets on the same physical device:
+
+| Role     | Applet     | Slot/Cred                |
+|----------+------------+--------------------------|
+| CA       | PIV        | Slot 9c (Digital Sig.)   |
+| Login    | PIV / FIDO2| Slot 9a / FIDO2 resident |
+
+** Recommendation for wjmca
+
+Keep the CA-keeper Yubikey *PIV-only for slot 9c*
+and do **not** enrol it for desktop login. Mixing
+roles increases the chance of stray PIN attempts
+locking out the CA key. If you want hardware login
+on the same workstation, use a second (cheap)
+Yubikey, or use FIDO2 on a separate device — the
+FIDO2 applet is independent of PIV but shares the
+overall lock counters and physical attention of the
+operator.
+
+* What Happened on Reboot With The Yubikey Inserted
+
+If you booted Ubuntu with the Yubikey plugged in
+and got something other than the normal password
+prompt, the most likely cause is:
+
+- ~pcscd~ detected a smartcard on USB.
+- GDM (the GNOME login manager) is built with
+  smartcard support and switched from "password"
+  to "PIN" mode.
+- Slot 9a (PIV Authentication) was empty or held a
+  certificate not mapped to your local user, so the
+  PIN prompt rejected everything (or just stalled).
+
+Pulling the Yubikey and reloading GDM (Ctrl+Alt+F1
+→ log in on TTY → ~sudo systemctl restart gdm~) is
+usually enough to get back to a normal password
+prompt.
+
+To prevent this from happening again *without*
+configuring smartcard login properly:
+
+#+begin_src bash
+# Option 1: remove the PAM smartcard module from GDM
+sudo sed -i 's/^auth.*pam_pkcs11.so/# &/' \
+  /etc/pam.d/gdm-password
+
+# Option 2: uninstall the package entirely
+sudo apt-get remove libpam-pkcs11
+#+end_src
+
+Either keeps the Yubikey's PIV applet from
+hijacking the login flow.
+
+* The Four Ways To Log In With A Yubikey
+
+** Option 1: PIV Smartcard Login (PKCS#11)
+
+GDM / lightdm prompts for the PIV PIN, OpenSC
+talks to the Yubikey, ~pam_pkcs11~ verifies that
+the certificate in *slot 9a* matches a known
+local user.
+
+- Applet: PIV
+- Slot:   9a (PIV Authentication — *not* 9c)
+- PAM:    ~pam_pkcs11.so~
+- Pkgs:   ~libpam-pkcs11 opensc pcscd~
+
+Setup outline:
+1. Generate a key + self-signed cert in slot 9a:
+   ~ykman piv keys generate --algorithm ECCP384 \
+     --pin-policy once 9a /tmp/login.pub.pem~
+2. Generate a cert that names your local username
+   in the subject CN, install it with
+   ~ykman piv certificates import 9a login.crt~.
+3. Configure ~/etc/pam_pkcs11/pam_pkcs11.conf~ and
+   the subject→user mapper (usually
+   ~/etc/pam_pkcs11/subject_mapping~).
+4. Add ~auth sufficient pam_pkcs11.so~ to
+   ~/etc/pam.d/gdm-password~ (or
+   ~/etc/pam.d/common-auth~ for all PAM services).
+
+Trade-off: real X.509-backed login, integrates
+with enterprise PKI. But fragile to misconfig —
+this is the path that broke your reboot.
+
+** Option 2: FIDO2 / Passkey (Recommended)
+
+Uses the Yubikey's FIDO2 applet, no PIV
+involvement. You register the device once and tap
+it at login.
+
+- Applet: FIDO2 (separate from PIV)
+- PAM:    ~pam_u2f.so~
+- Pkgs:   ~libpam-u2f~
+
+Setup:
+#+begin_src bash
+# 1. Install
+sudo apt-get install libpam-u2f
+
+# 2. Register your Yubikey (touch when it blinks)
+mkdir -p ~/.config/Yubico
+pamu2fcfg > ~/.config/Yubico/u2f_keys
+
+# 3. Add a backup key (recommended)
+pamu2fcfg -n >> ~/.config/Yubico/u2f_keys
+
+# 4. Enable for sudo first (so you can recover
+#    if GDM breaks):
+sudo nano /etc/pam.d/sudo
+# Add as the FIRST auth line:
+#   auth required pam_u2f.so
+
+# 5. Test sudo in another terminal BEFORE
+#    extending to GDM.
+
+# 6. Once sudo works, extend to gdm-password
+#    (or common-auth for everything).
+#+end_src
+
+Trade-off: simplest, fully offline, modern. Doesn't
+prove identity to anything other than the local
+machine.
+
+** Option 3: Challenge-Response HMAC-SHA1
+
+Uses the OTP applet's slot 2 to compute an
+HMAC-SHA1 over a stored challenge. Offline, no
+internet.
+
+- Applet: OTP (slot 2)
+- PAM:    ~pam_yubico.so~ with ~mode=challenge-response~
+- Pkgs:   ~libpam-yubico yubikey-personalization~
+
+Setup:
+#+begin_src bash
+sudo apt-get install libpam-yubico \
+  yubikey-personalization
+
+# Program slot 2 for challenge-response
+ykpersonalize -2 -ochal-resp -ochal-hmac \
+  -ohmac-lt64 -oserial-api-visible
+
+# Provision the challenge for your account
+ykpamcfg -2 -v
+# Writes ~/.yubico/challenge-<serial>
+#+end_src
+
+Add to PAM:
+#+begin_src
+auth required pam_yubico.so mode=challenge-response
+#+end_src
+
+** Option 4: Yubico OTP (Online)
+
+Yubikey behaves as a USB keyboard and types a
+44-character one-time password when touched. The
+PAM module verifies it against YubiCloud (Yubico's
+servers) by default.
+
+- Applet: OTP (slot 1, factory-programmed)
+- PAM:    ~pam_yubico.so~
+- Pkgs:   ~libpam-yubico~
+
+Trade-off: simplest to provision, but requires
+internet access to YubiCloud at every login (or
+you run your own validation server).
+
+* Combining Roles On One Yubikey
+
+It is technically possible to use *one* Yubikey
+for both CA signing (slot 9c) and PIV login
+(slot 9a). The applet is the same; the slots are
+independent. **We don't recommend this for the
+wjmca root key** because:
+
+- The PIV PIN is shared across all PIV slots. A
+  shoulder-surfed login PIN is also the CA PIN.
+- 3 wrong PIN attempts at the login screen locks
+  *all* PIV slots, including 9c.
+- The login flow may invoke ~ykman piv reset~
+  during troubleshooting, which destroys slot 9c.
+
+FIDO2 (Option 2) is safer to combine because
+FIDO2 PIN lockouts don't affect PIV. But still,
+the principle of separating roles by device
+remains the right default for a CA-keeper.
+
+* Troubleshooting
+
+** GDM stuck on PIN prompt with no smartcard configured
+
+#+begin_src bash
+# From a TTY (Ctrl+Alt+F3, log in as your user):
+sudo systemctl stop gdm
+sudo apt-get remove --purge libpam-pkcs11
+sudo systemctl start gdm
+#+end_src
+
+** Yubikey not detected at login but works in shell
+
+#+begin_src bash
+# pcscd must be running before GDM starts
+sudo systemctl enable --now pcscd
+
+# Some Yubikey models need udev rules for non-root
+sudo curl -L \
+  https://raw.githubusercontent.com/Yubico/yubikey-manager/master/linux_install/70-u2f.rules \
+  -o /etc/udev/rules.d/70-yubico.rules
+sudo udevadm control --reload
+sudo udevadm trigger
+#+end_src
+
+** Locked out after enabling pam_u2f for GDM
+
+Reboot to recovery mode → root shell → comment out
+the ~pam_u2f.so~ line in ~/etc/pam.d/gdm-password~.
+Always test on ~/etc/pam.d/sudo~ first and keep a
+TTY logged in while you reconfigure GDM.
+
+* Related Documentation
+
+- [[./yubikey.org][yubikey.org]] — CA-signing Yubikey setup (slot 9c)
+- [[./CLAUDE.md][CLAUDE.md]] — Project overview
+- Yubico FIDO2 PAM:
+  https://developers.yubico.com/pam-u2f/
+- Yubico PIV PAM:
+  https://developers.yubico.com/yubico-piv-tool/
+
+* Version History
+
+| Version | Date       | Changes                |
+|---------+------------+------------------------|
+| 1.0     | 2026-05-26 | Initial login guide    |
+
+---
+
+*Maintained by: Root Keeper*
+*Last Updated: 2026-05-26*

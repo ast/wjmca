@@ -373,6 +373,70 @@ Output shows:
 - Validity dates
 - Public key details
 
+*** What `certificates export` Does — and Doesn't — Export
+
+A common point of confusion:
+~ykman piv certificates export 9c root-ca.pem~
+exports the *certificate*, which contains only the
+**public key** plus metadata (subject, issuer,
+validity, signatures). The **private key never
+leaves the Yubikey**.
+
+X.509 certificates are public by design — a TLS
+server hands its certificate to every connecting
+client. The security of the keypair depends on the
+*private* half staying inside the device.
+
+The Yubikey enforces this in hardware:
+
+- On-device-generated private keys cannot be
+  extracted. There is no command in `ykman`,
+  `yubico-piv-tool`, or OpenSC that exports a
+  private key — the chip refuses and there is no
+  electrical path off the die for the key
+  material.
+- `ykman piv keys` has subcommands ~generate~,
+  ~import~, ~info~, ~attest~, ~delete~, ~move~ —
+  notably **no `export`**.
+
+You can prove it to yourself:
+
+#+begin_src bash
+ykman piv certificates export 9c root-ca.pem
+openssl x509 -in root-ca.pem -text -noout
+# Output shows "Subject Public Key Info:" — a
+# public key. There is no "PRIVATE KEY" block.
+#+end_src
+
+**The one exception: imported keys.** If you
+generated a key with ~openssl genpkey~ and ran
+~ykman piv keys import~ (see [[*Option B: Generate Offline, Import to Yubikey][Option B]] and the
+multi-Yubikey backup procedure), *you* held the
+private key in software before importing it. A
+copy may still exist on disk or in backups unless
+you securely shredded it. After import, the
+Yubikey itself still won't export it — but the
+device can't undo the fact that the key once
+existed off-device.
+
+**Verifying a key was generated on-device:**
+use *attestation*.
+
+#+begin_src bash
+ykman piv keys attest 9c attest.pem
+openssl x509 -in attest.pem -text -noout
+#+end_src
+
+The attestation certificate is signed by a
+Yubico-rooted intermediate and proves "this
+public key was generated on a real Yubikey, in
+this slot, with these touch and PIN policies" —
+i.e., the private key has never existed off-
+device. Attestation only succeeds for on-device-
+generated keys; an imported key cannot be
+attested, which is itself a meaningful signal
+during an audit.
+
 *** Safety Check Before Generating
 
 **⚠️ WARNING**: Generating a new key in slot 9c
