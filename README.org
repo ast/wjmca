@@ -254,19 +254,33 @@ This creates an X.509 v3 certificate with:
 
 ** Backup & Key Rotation
 
-*Backup* (every 6 months):
-- Archive root private key to encrypted
-  external media
-- Store in secure location (bank safe, etc.)
-- Document serial numbers of all certificates
-  issued
+*Backup*: The root key lives on a Yubikey and
+does not leave it, so there is nothing to
+"archive" in the conventional sense. The backup
+strategy is decided *before* the key is created
+and is implemented by holding the same key
+material on multiple Yubikeys (or by accepting
+no backup at all). See [[./yubikey.org::*Backup & Recovery][yubikey.org → Backup & Recovery]]
+for the three options and the recommended
+procedure for wjmca.
 
-*Key Rotation* (every 10+ years):
-- Generate new root key and certificate
-- Have old root sign new root certificate
-  (create chain)
-- Notify all stakeholders
-- Deprecate old root (announce sunset date)
+*Audit reviews* (every 6 months):
+- Verify tamper-evident seals on backup
+  Yubikeys are intact
+- Document serial numbers of all certificates
+  issued since the last review
+- Confirm the audit log is complete
+
+*Key Rotation* (every 10+ years, or when
+forced by Yubikey loss):
+- Generate new root key and certificate (a
+  fresh execution of the chosen backup option)
+- Distribute new root cert to all clients
+- Have new root sign a new intermediate CA
+  certificate
+- Announce sunset date for the old root and
+  keep it valid until all relying parties
+  have migrated
 
 ** Emergency Recovery
 
