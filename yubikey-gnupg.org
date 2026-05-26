@@ -1,0 +1,603 @@
+#+title: Yubikey with GnuPG
+#+author: Root Keeper
+#+date: 2026-05-26
+
+* Overview
+
+The Yubikey can hold GnuPG keys in a dedicated
+**OpenPGP smartcard applet**, which is independent
+of the PIV applet used by the CA. Once subkeys
+live on the device, every signing, decryption, and
+authentication operation runs on the chip and
+requires PIN entry (and optionally a physical
+touch).
+
+Typical things this enables:
+- Signed git commits and tags
+- Signed software releases (tarballs, debs, etc.)
+- Encrypted email (Thunderbird/Enigmail, mutt)
+- File encryption / decryption with ~gpg~
+- SSH authentication via ~gpg-agent~
+- A reproducible "lose your laptop, plug Yubikey
+  into a new machine, keep working" workflow
+
+** Relationship to the CA Yubikey (yubikey.org)
+
+| Applet  | Used by         | PIN              | Slots         |
+|---------+-----------------+------------------+---------------|
+| PIV     | Root CA signing | PIV PIN          | 9a/9c/9d/9e   |
+| OpenPGP | GnuPG           | User PIN + Admin | SIG/ENC/AUTH  |
+| FIDO2   | Login / sudo    | FIDO2 PIN        | (resident)    |
+
+The OpenPGP applet has *its own* User PIN, Admin
+PIN, and lockout counter. A wrong-PIN lockout
+against the OpenPGP applet does **not** affect
+PIV slot 9c, and vice versa. They are isolated.
+
+It is therefore safe in principle to put GnuPG on
+the same Yubikey you use for CA signing. We still
+recommend a **separate Yubikey for GnuPG** because:
+- Different lifecycles (you'll add/rotate GPG
+  subkeys more often than the root CA key).
+- Different physical-presence needs (you sign
+  commits dozens of times a day; you sign
+  intermediate CSRs once a year).
+- Failure of the GPG applet (e.g. via the official
+  ~gpg --card-edit~ → ~factory-reset~) does not
+  touch PIV, but accidental ~ykman piv reset~
+  *will* wipe slot 9c.
+
+* Prerequisites
+
+#+begin_src bash
+# Ubuntu/Debian
+sudo apt-get install gnupg scdaemon pcscd \
+  yubikey-manager pinentry-curses
+
+# macOS
+brew install gnupg pinentry-mac yubikey-manager
+#+end_src
+
+Verify GnuPG can talk to the card:
+
+#+begin_src bash
+gpg --card-status
+#+end_src
+
+Expected: a block describing the Yubikey
+(Application ID, version, serial, etc.). If you
+get ~No such device~, ensure ~pcscd~ is running
+(~sudo systemctl start pcscd~) and re-insert the
+key.
+
+* OpenPGP Applet Basics
+
+Every Yubikey ships with publicly documented
+OpenPGP defaults:
+
+| Credential | Default      | Purpose                  |
+|------------+--------------+--------------------------|
+| User PIN   | ~123456~     | Sign / decrypt / auth    |
+| Admin PIN  | ~12345678~   | Manage card, change PINs |
+| Reset Code | (unset)      | Unblock User PIN         |
+
+**Change all three before putting any key
+material on the card.** User PIN locks after 3
+wrong attempts; Admin PIN locks after 3 wrong
+attempts and *cannot be recovered* — the only
+recovery is ~gpg --card-edit~ → ~factory-reset~,
+which wipes the OpenPGP applet entirely.
+
+** Three Key Slots on the Card
+
+The OpenPGP applet exposes three logical key
+slots:
+
+| Slot | Capability       | Used for                  |
+|------+------------------+---------------------------|
+| SIG  | Signature        | Signing data (incl. git)  |
+| ENC  | Encryption       | Decrypting received data  |
+| AUTH | Authentication   | SSH auth via gpg-agent    |
+
+A GnuPG primary key never goes on the card. Only
+**subkeys** do — one per slot.
+
+* Initial Card Setup
+
+** Step 1: Reset (only if the card has been used)
+
+⚠️ WARNING: destroys all OpenPGP key material on
+the card. Does *not* affect PIV slot 9c.
+
+#+begin_src bash
+gpg --card-edit
+gpg/card> admin
+gpg/card> factory-reset
+gpg/card> quit
+#+end_src
+
+** Step 2: Replace All Three Credentials
+
+#+begin_src bash
+gpg --card-edit
+gpg/card> admin
+gpg/card> passwd
+#   1 - change PIN
+#   3 - change Admin PIN
+#   4 - set the Reset Code (optional)
+#+end_src
+
+Choose PINs that are 6–8 digits, distinct, and not
+the same as your PIV PIN.
+
+Store them in ~pass~:
+
+#+begin_src bash
+pass insert gpg/yubikey-user-pin
+pass insert gpg/yubikey-admin-pin
+pass insert gpg/yubikey-reset-code   # optional
+#+end_src
+
+** Step 3: Set Cardholder Metadata
+
+While still in ~gpg --card-edit~ admin mode:
+
+#+begin_src
+gpg/card> name
+# Surname / Given name
+
+gpg/card> lang
+# en  (two-letter code)
+
+gpg/card> login
+# your email or login name
+
+gpg/card> sex                # F/M/space
+gpg/card> url
+# optional: URL to your public key
+gpg/card> quit
+#+end_src
+
+This metadata is *not* secret. It's stamped into
+every signature/auth handshake the card performs,
+so name and email are visible to anyone who
+verifies your signature.
+
+* Recommended Key Model: Offline Master + Subkeys
+
+The well-trodden pattern:
+
+#+begin_src
+                  ┌──────────────────┐
+                  │  Primary key (C) │   ← offline only
+                  │  Certify-only    │
+                  └────────┬─────────┘
+                           │ certifies
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+  ┌──────────┐       ┌──────────┐       ┌──────────┐
+  │  SIG sub │       │  ENC sub │       │  AUTH sub│
+  │  on card │       │  on card │       │  on card │
+  └──────────┘       └──────────┘       └──────────┘
+#+end_src
+
+The primary key never touches a network-connected
+machine. It only comes out to:
+- Add/rotate subkeys
+- Sign other people's keys (web of trust)
+- Revoke a lost card's subkeys
+
+Day-to-day work uses the subkeys, which live on
+the Yubikey and are useless without it.
+
+** Generating Master + Subkeys (Air-Gapped Machine)
+
+Boot a clean live USB on an air-gapped machine
+(same model as the CA bootstrap procedure in
+[[./yubikey.org][yubikey.org]] — see "Backup & Recovery → Option A").
+
+#+begin_src bash
+# Use tmpfs so no key ever touches disk
+export GNUPGHOME=$(mktemp -d /dev/shm/gnupg.XXXX)
+chmod 700 "$GNUPGHOME"
+
+# Create the primary (Certify-only) key
+gpg --expert --full-generate-key
+#  Kind of key:      9   (ECC and ECC)
+#  Curve:            1   (Curve 25519)
+#  Capabilities:     toggle off Sign and
+#                    Encrypt; leave only Certify
+#  Validity:         0   (does not expire) or a
+#                    long period like 10y
+#  Real name + email + comment as desired
+#  Passphrase:       strong, save in pass
+
+# Note the primary key fingerprint
+gpg --list-secret-keys --with-fingerprint
+export KEYID=<your-primary-key-id>
+
+# Add three subkeys, each with a single capability
+gpg --expert --edit-key "$KEYID"
+gpg> addkey                 # for SIG: ECC sign,   1y
+gpg> addkey                 # for ENC: ECC encrypt, 1y
+gpg> addkey                 # for AUTH: ECC auth,   1y
+#   (For AUTH: choose "ECC (set your own
+#    capabilities)" then toggle to A only)
+gpg> save
+#+end_src
+
+** Back Up the Primary Key
+
+#+begin_src bash
+# Export everything to encrypted files on
+# a USB stick (NOT the live boot stick)
+gpg --armor --export-secret-keys "$KEYID" \
+  > /mnt/usb/primary-secret.asc
+gpg --armor --export-secret-subkeys "$KEYID" \
+  > /mnt/usb/subkeys-secret.asc
+gpg --armor --export "$KEYID" \
+  > /mnt/usb/public.asc
+gpg --gen-revoke "$KEYID" \
+  > /mnt/usb/revocation.asc
+
+# Verify backups before destroying tmpfs
+ls -la /mnt/usb/
+#+end_src
+
+Store the USB stick in a fireproof safe. The
+revocation certificate goes somewhere separate —
+if both leak together, an attacker can revoke
+your identity.
+
+** Move Subkeys onto the Yubikey
+
+While the air-gapped session is still alive:
+
+#+begin_src bash
+gpg --edit-key "$KEYID"
+gpg> key 1                   # select SIG subkey
+gpg> keytocard
+#   Choose: 1 (Signature key)
+gpg> key 1                   # deselect
+gpg> key 2                   # select ENC
+gpg> keytocard
+#   Choose: 2 (Encryption key)
+gpg> key 2
+gpg> key 3                   # select AUTH
+gpg> keytocard
+#   Choose: 3 (Authentication key)
+gpg> save
+#+end_src
+
+⚠️ ~keytocard~ **moves** the private subkey to the
+card and replaces the local copy with a *stub*
+pointing at the card. After ~save~, the on-disk
+secret subkey is gone. This is fine — your full
+backup is on the offline USB you just made.
+
+** Export Public Key for Daily-Use Machine
+
+#+begin_src bash
+gpg --armor --export "$KEYID" > public.asc
+# Copy public.asc to your laptop via USB
+
+# Then on your laptop:
+gpg --import public.asc
+gpg --card-status     # re-link subkey stubs to
+                      #  the inserted Yubikey
+#+end_src
+
+After ~--card-status~ on the laptop, ~gpg
+--list-secret-keys~ shows the subkeys with a
+trailing ~>~, meaning "secret material is on a
+smartcard."
+
+Tear down the air-gapped session:
+
+#+begin_src bash
+unset GNUPGHOME
+shred -uvz -- /dev/shm/gnupg.*/* 2>/dev/null
+poweroff
+#+end_src
+
+* Day-to-Day Operations
+
+** Sign a Git Commit
+
+One-time setup:
+
+#+begin_src bash
+gpg --list-secret-keys --keyid-format=long
+# Find the SIG subkey id (the one with [S] after
+# the algorithm, ending with !)
+
+git config --global user.signingkey <SIG-key-id>!
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+#+end_src
+
+The trailing ~!~ pins git to the specific subkey
+(otherwise gpg may pick the primary, which lives
+offline and won't be available).
+
+Then just:
+
+#+begin_src bash
+git commit -m "..."
+# Yubikey blinks; enter PIN (cached for the
+# session); if touch policy is set, tap the key.
+#+end_src
+
+** Sign a Tag
+
+#+begin_src bash
+git tag -s v1.0 -m "Release 1.0"
+git tag -v v1.0    # verify
+#+end_src
+
+** Sign an Arbitrary File (Detached Signature)
+
+#+begin_src bash
+gpg --detach-sign --armor wjmca-release.tar.gz
+# Produces wjmca-release.tar.gz.asc
+
+# Anyone with your public key can verify:
+gpg --verify wjmca-release.tar.gz.asc \
+  wjmca-release.tar.gz
+#+end_src
+
+** Encrypt a File for Yourself
+
+#+begin_src bash
+gpg --encrypt --recipient you@example.org \
+  secrets.txt
+# Produces secrets.txt.gpg
+
+# Decrypt requires the Yubikey + PIN:
+gpg --decrypt secrets.txt.gpg > secrets.txt
+#+end_src
+
+** Encrypt for Someone Else
+
+#+begin_src bash
+# Import their public key first
+gpg --import their-public.asc
+gpg --edit-key their-id
+gpg> trust          # set trust level
+gpg> save
+
+gpg --encrypt --recipient their@email.org file.txt
+#+end_src
+
+** Sign and Encrypt Together (Email)
+
+#+begin_src bash
+gpg --sign --encrypt \
+  --recipient them@example.org \
+  --armor message.txt
+# Produces message.txt.asc — paste into email
+#+end_src
+
+* SSH Authentication via gpg-agent
+
+The AUTH subkey can replace ~ssh-agent~. Servers
+see a standard SSH public key; the private
+operation happens on the Yubikey.
+
+** Configure gpg-agent to Act as ssh-agent
+
+#+begin_src bash
+# ~/.gnupg/gpg-agent.conf
+echo "enable-ssh-support" \
+  >> ~/.gnupg/gpg-agent.conf
+echo "default-cache-ttl 600" \
+  >> ~/.gnupg/gpg-agent.conf
+echo "max-cache-ttl 7200" \
+  >> ~/.gnupg/gpg-agent.conf
+
+# ~/.bashrc or ~/.zshrc
+export SSH_AUTH_SOCK=$(gpgconf \
+  --list-dirs agent-ssh-socket)
+gpgconf --launch gpg-agent
+
+# Reload your shell
+exec $SHELL
+#+end_src
+
+** Add the AUTH Key to the SSH Agent
+
+#+begin_src bash
+# Show the SSH-format public key
+ssh-add -L
+# ssh-ed25519 AAAAC3Nz... cardno:000123456789
+
+# Copy that line to ~/.ssh/authorized_keys on
+# the remote hosts.
+
+# Test
+ssh -v user@host
+#+end_src
+
+When you SSH in, the Yubikey blinks, you enter
+the PIN once per session (cached for
+~default-cache-ttl~ seconds), and from then on
+SSH works normally until the cache expires or
+you remove the key.
+
+* Touch Policies
+
+By default the OpenPGP applet does **not** require
+a physical touch — only the PIN. For high-value
+operations you can require a tap each time:
+
+#+begin_src bash
+# Requires yubikey-manager
+ykman openpgp keys set-touch sig on
+ykman openpgp keys set-touch enc on
+ykman openpgp keys set-touch aut on
+
+# Options: off, on, fixed, cached, cached-fixed
+# 'cached' allows a 15s grace window after one tap
+# 'fixed' cannot be turned off later without
+# a card reset — be sure before enabling.
+#+end_src
+
+For ~git commit~ throughout a workday, ~cached~
+is the right balance — one tap unlocks signing
+for 15 seconds.
+
+* Recovery Scenarios
+
+** Lost or Broken Yubikey
+
+1. Boot the air-gapped machine, restore
+   ~GNUPGHOME~ from your offline USB backup.
+2. Generate new subkeys under the same primary
+   key (or import to a fresh Yubikey using the
+   subkey backup).
+3. Distribute the updated public key
+   (~gpg --export~) to keyservers / collaborators.
+4. If the device was lost (not just broken),
+   publish the revocation for the *subkeys*
+   (not the primary).
+
+Because the primary key is intact, your identity
+is intact — only the subkeys need rotating.
+
+** Forgot the User PIN
+
+#+begin_src bash
+gpg --card-edit
+gpg/card> admin
+gpg/card> passwd
+#   2 - unblock PIN (requires Admin PIN)
+#+end_src
+
+If you set a Reset Code earlier, the holder of
+the Reset Code can also unblock without the
+Admin PIN.
+
+** Forgot the Admin PIN
+
+There is no recovery. ~gpg --card-edit~ →
+~admin~ → ~factory-reset~ wipes the OpenPGP
+applet (PIV slot 9c is untouched), and you
+re-do the ~keytocard~ workflow from the offline
+backup.
+
+** Primary Key Backup Lost
+
+If both the offline USB AND the Yubikey are lost,
+the primary key is irrecoverable. You start over
+with a new identity. The web-of-trust signatures
+on the old identity don't carry over.
+
+This is why the offline USB is worth a real safe,
+not a desk drawer.
+
+* Troubleshooting
+
+** ~gpg: signing failed: No such device~
+
+The card isn't visible to scdaemon. Common fixes:
+
+#+begin_src bash
+# Restart the daemons
+gpgconf --kill scdaemon
+gpgconf --kill gpg-agent
+sudo systemctl restart pcscd
+
+# Re-insert the Yubikey, then:
+gpg --card-status
+#+end_src
+
+** ~gpg: signing failed: Card error~
+
+Often means the SIG subkey stub doesn't match the
+card's actual SIG slot. Re-import the public key:
+
+#+begin_src bash
+gpg --import public.asc
+gpg --card-status
+#+end_src
+
+** PIN Prompt Doesn't Appear
+
+Pinentry isn't configured. Add to
+~~/.gnupg/gpg-agent.conf~:
+
+#+begin_src
+pinentry-program /usr/bin/pinentry-curses
+# or /usr/bin/pinentry-gtk-2,
+#    /usr/bin/pinentry-qt, etc.
+#+end_src
+
+Then ~gpgconf --kill gpg-agent~.
+
+** Conflicting Card Access
+
+If another tool (pcsc-tools, browser FIDO2 popup,
+ssh-agent that isn't gpg-agent) is holding the
+card, gpg can't reach it. Close the offender and
+retry, or stop ~pcscd~ briefly:
+~sudo systemctl restart pcscd~.
+
+* Useful Commands Reference
+
+#+begin_src bash
+# Card inspection
+gpg --card-status
+ykman openpgp info
+
+# Edit card metadata + PINs
+gpg --card-edit
+ykman openpgp access change-pin
+ykman openpgp access change-admin-pin
+ykman openpgp access change-reset-code
+
+# Touch policies
+ykman openpgp keys set-touch sig cached
+ykman openpgp keys set-touch enc cached
+ykman openpgp keys set-touch aut cached
+
+# Reset the OpenPGP applet (DESTROYS GPG keys
+# but leaves PIV alone)
+ykman openpgp reset
+
+# Day-to-day GPG
+gpg --list-secret-keys --keyid-format=long
+gpg --sign file
+gpg --detach-sign --armor file
+gpg --encrypt --recipient X file
+gpg --decrypt file.gpg
+gpg --verify file.asc file
+
+# Git integration
+git config --global commit.gpgsign true
+git config --global user.signingkey <SIG-id>!
+
+# SSH integration
+ssh-add -L                  # show pubkey
+gpgconf --list-dirs agent-ssh-socket
+#+end_src
+
+* Related Documentation
+
+- [[./yubikey.org][yubikey.org]] — CA-signing Yubikey setup (PIV)
+- [[./yubikey-login.org][yubikey-login.org]] — Desktop login (PIV/FIDO2)
+- [[./CLAUDE.md][CLAUDE.md]] — Project overview
+- GnuPG smartcard docs:
+  https://www.gnupg.org/howtos/card-howto/en/
+- Yubico OpenPGP guide:
+  https://developers.yubico.com/PGP/
+
+* Version History
+
+| Version | Date       | Changes               |
+|---------+------------+-----------------------|
+| 1.0     | 2026-05-26 | Initial GnuPG guide   |
+
+---
+
+*Maintained by: Root Keeper*
+*Last Updated: 2026-05-26*
