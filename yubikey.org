@@ -308,10 +308,13 @@ Serial: 23027434
 
 *** List All Keys on Device
 
-Use `yubico-piv-tool` (more direct):
+Use `yubico-piv-tool -a status` (this is the right
+action — `-a list` is action-prefix matching for
+~list-readers~, which only lists PC/SC card
+readers, not PIV slots):
 
 #+begin_src bash
-yubico-piv-tool -a list
+yubico-piv-tool -a status
 #+end_src
 
 Or check specific slots with ykman:
@@ -327,13 +330,27 @@ This shows which slots contain keys:
 - Slot 9d (Key Management)
 - Slot 9e (Card Authentication)
 
-Example output from `yubico-piv-tool -a list`:
+Example output from `yubico-piv-tool -a status`
+when slot 9c holds a key and certificate:
 #+begin_src
-PIV 3 Certificate for Slot 9c (Digital Signature):
-  Subject: CN=Root CA, O=Organization
-  Issuer: CN=Root CA, O=Organization
-  Public key (EC P-384)
+Slot 9c:
+  Algorithm:    ECCP384
+  Subject DN:   CN=Root CA, O=Organization
+  Issuer DN:    CN=Root CA, O=Organization
+  Fingerprint:  ...
+  Not Before:   ...
+  Not After:    ...
 #+end_src
+
+If you instead run `yubico-piv-tool -a list` you
+will see something like:
+#+begin_src
+Yubico YubiKey OTP+FIDO+CCID 00 00
+#+end_src
+That is the PC/SC *reader* name (manufacturer,
+product, enabled USB interfaces, reader index) —
+**not** a list of slots or keys. Use `-a status`
+instead.
 
 *** List All Certificates on Device
 
@@ -446,7 +463,7 @@ Before proceeding, ask yourself:
 
 1. **Is slot 9c empty?**
    #+begin_src bash
-   yubico-piv-tool -a list | grep "Slot 9c"
+   yubico-piv-tool -a status | grep "Slot 9c"
    #+end_src
    If it shows nothing, slot 9c is empty and safe to use.
 
@@ -660,7 +677,9 @@ simpler:
 
 #+begin_src bash
 # List certificates and keys on device
-yubico-piv-tool -a list
+# (use `status`, not `list` — `-a list` shows
+#  PC/SC readers, not PIV slot contents)
+yubico-piv-tool -a status
 
 # Export public key
 yubico-piv-tool -a read-cert -s 9c \
