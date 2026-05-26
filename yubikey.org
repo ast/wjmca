@@ -42,10 +42,31 @@ or YubiKey 5C (USB-C)
 - FIPS version if compliance required
 
 **Note on Ed25519**: YubiKey 5 series does NOT
-currently support Ed25519 keys in PIV mode. For
-modern Ed25519-based CAs, use RSA-4096 on Yubikey
-with Ed25519 for intermediate CAs and end-entity
-certificates.
+currently support Ed25519 keys in PIV mode. Use
+ECCP384 on the Yubikey for the root, with Ed25519
+for intermediate CAs and end-entity certificates.
+
+**Note on RSA-4096**: PIV support for RSA-4096
+(and RSA-3072) requires YubiKey firmware **5.7 or
+later** — both for on-device generation *and* for
+import. On firmware 5.4.x the only available PIV
+algorithms are RSA-1024, RSA-2048, ECCP256, and
+ECCP384. We recommend **ECCP384** as the root key
+algorithm; it is supported on all YubiKey 5.x
+firmware and is roughly equivalent to RSA-7680 in
+security strength.
+
+**Note on firmware updates**: YubiKey firmware is
+*not* user-updatable. Yubico fuses the firmware at
+manufacture, so there is no flashing tool, signed
+update package, or recovery path — the goal is to
+eliminate any code path by which malware (or an
+attacker who finds a vulnerability in an update
+mechanism) could rewrite the device. To run a
+newer firmware version (e.g. 5.7+ for RSA-4096
+support), you must buy a new YubiKey. Check the
+firmware on a device you already have with
+`ykman info`.
 
 ** Hardware Considerations
 
@@ -110,7 +131,7 @@ ykman list
 
 * Initial Yubikey Setup
 
-** ⚠️ Background: The Default Credentials Problem
+** Important: Change the default management key
 
 Every YubiKey ships from the factory with three
 *publicly documented* default credentials:
@@ -311,16 +332,26 @@ Example output from `yubico-piv-tool -a list`:
 PIV 3 Certificate for Slot 9c (Digital Signature):
   Subject: CN=Root CA, O=Organization
   Issuer: CN=Root CA, O=Organization
-  Public key (RSA 4096-bit)
+  Public key (EC P-384)
 #+end_src
 
 *** List All Certificates on Device
 
+`ykman` has no command that lists certificates
+across all slots. Use `yubico-piv-tool` instead:
+
 #+begin_src bash
-ykman piv certificates list
+yubico-piv-tool -a status
 #+end_src
 
-Shows which slots have certificates installed.
+This prints every PIV slot with its algorithm,
+subject, issuer, and validity. To probe a single
+slot with `ykman`, try exporting it (errors if
+the slot is empty):
+
+#+begin_src bash
+ykman piv certificates export 9c -
+#+end_src
 
 *** Inspect Specific Slot (9c - Our Signing Slot)
 
@@ -384,15 +415,33 @@ The key is generated directly on the Yubikey and
 never leaves it:
 
 #+begin_src bash
-# Generate RSA-4096 key in slot 9c
-# (standard for signing)
-ykman piv keys generate --algorithm RSA4096 \
-  --pin-policy once 9c
+# Generate ECCP384 key in slot 9c
+# (recommended default — supported on all 5.x)
+ykman piv keys generate --algorithm ECCP384 \
+  --pin-policy once 9c /tmp/root-ca.pub.pem
 
 # Enter Management Key when prompted
 # PIN policy 'once' means user must enter PIN
 # once per session
+# The trailing argument is the path where ykman
+# writes the corresponding public key.
 #+end_src
+
+*Algorithm alternatives:*
+
+| Algorithm | Firmware | Notes |
+|-----------|----------|-------|
+| ECCP384 | All 5.x | **Recommended.** Modern ECC, fast |
+| ECCP256 | All 5.x | Smaller curve; fine if size matters |
+| RSA-2048 | All 5.x | Weaker than ECCP384; widest compat |
+| RSA-3072 | 5.7+ | Pure RSA, no firmware-5.4 support |
+| RSA-4096 | 5.7+ | Strongest RSA; requires 5.7+ firmware |
+
+The root algorithm does *not* constrain what
+intermediate or end-entity certificates can use —
+RSA-4096 end-entity certs for legacy devices (e.g.
+Grandstream SIP adapters) still work under an
+ECCP384 root.
 
 **Slot Assignment** (PIV Standard NIST SP 800-73):
 
@@ -420,23 +469,39 @@ Signature) because:
 
 *Why not Ed25519?* YubiKey 5 PIV mode doesn't
 support Ed25519 in PIV-compliant slots. Use
-RSA-4096 for root (on Yubikey), Ed25519 for
+ECCP384 for the root (on Yubikey), Ed25519 for
 intermediates and end-entity certificates.
 
 ** Option B: Generate Offline, Import to Yubikey
 
 If you prefer to generate the key on the CA
-machine, then import:
+machine, then import. The main reason to do this
+is the multi-YubiKey backup procedure below, where
+the *same* private key must end up on more than
+one device.
 
 #+begin_src bash
-# Generate RSA-4096 key offline
-openssl genrsa -out /tmp/root-ca.key 4096
+# Generate ECCP384 key offline
+openssl genpkey -algorithm EC \
+  -pkeyopt ec_paramgen_curve:P-384 \
+  -out /tmp/root-ca.key
+chmod 400 /tmp/root-ca.key
 
 # Import to Yubikey (slot 9c)
 ykman piv keys import 9c /tmp/root-ca.key
 
 # Securely delete temporary key
 shred -vfz -n 3 /tmp/root-ca.key
+#+end_src
+
+For RSA-4096 (requires YubiKey firmware 5.7+ on
+every device the key is imported into):
+
+#+begin_src bash
+openssl genpkey -algorithm RSA \
+  -pkeyopt rsa_keygen_bits:4096 \
+  -out /tmp/root-ca.key
+ykman piv keys import 9c /tmp/root-ca.key
 #+end_src
 
 **⚠️ Risk**: Key exists on disk briefly. Only use
@@ -736,10 +801,14 @@ rfkill list          # WiFi/BT should be blocked
 # Step 2: Generate the root CA key in tmpfs.
 # /dev/shm is RAM-only, never touches disk.
 cd /dev/shm
-openssl genpkey -algorithm RSA \
-  -pkeyopt rsa_keygen_bits:4096 \
+openssl genpkey -algorithm EC \
+  -pkeyopt ec_paramgen_curve:P-384 \
   -out root-ca.key
 chmod 400 root-ca.key
+# (Use RSA 4096 only if every primary AND backup
+#  YubiKey is firmware 5.7+: replace the genpkey
+#  line with `-algorithm RSA -pkeyopt
+#  rsa_keygen_bits:4096`.)
 
 # Step 3: Sanity-check the key
 openssl pkey -in root-ca.key -text -noout | head
@@ -880,8 +949,8 @@ concerns.
 # Check device info
 ykman piv info
 
-# List all certificates/keys
-ykman piv certificates list
+# List all slot contents (algorithm, subject, etc.)
+yubico-piv-tool -a status
 
 # Export public key
 ykman piv certificates export 9c root-ca.pub.pem
@@ -1066,16 +1135,18 @@ ykman piv access unblock-pin
 # Unblock locked PIN
 
 # Key Generation & Info
-ykman piv keys generate 9c --algorithm RSA4096
-# Generate key in slot 9c
+ykman piv keys generate 9c --algorithm ECCP384 \
+  /tmp/pub.pem
+# Generate key in slot 9c (use RSA4096 only on
+# firmware 5.7+; see "Generate Root CA Key" above)
 ykman piv keys info 9c
 # Show info about key in slot 9c
-yubico-piv-tool -a list
-# List all keys and certificates on device
+yubico-piv-tool -a status
+# Show all slot contents on the device
 
 # Certificates
-ykman piv certificates list
-# List all certificates
+# (no `certificates list` subcommand in ykman —
+# use `yubico-piv-tool -a status` to see all slots)
 ykman piv certificates export 9c out.pem
 # Export certificate
 ykman piv certificates import 9c in.pem
