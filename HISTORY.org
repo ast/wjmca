@@ -433,6 +433,18 @@ PEM is DER converted to base64 and wrapped with
 header/footer. It's *text*, so you can view it in a
 text editor, email it, paste it in documentation.
 
+⚠️ *A small caveat*: PEM is technically just a
+*framing* format (RFC 7468)—BEGIN/END markers around
+base64. For every PKI artifact you'll encounter in
+wjmca (certificates, CSRs, CRLs, PKCS#8 private
+keys), the payload inside is DER. The practical
+exception is *OpenSSH private keys*
+(`-----BEGIN OPENSSH PRIVATE KEY-----`), which use
+PEM framing around OpenSSH's own custom binary
+format, not ASN.1 DER. Older `-----BEGIN RSA PRIVATE
+KEY-----` and `-----BEGIN EC PRIVATE KEY-----` files
+*are* DER (PKCS#1 and SEC1 respectively).
+
 To convert:
 #+begin_src bash
 # DER to PEM
