@@ -364,6 +364,217 @@ Status codes:
 - `R`: Revoked
 - `E`: Expired
 
+** Tracking and Revocation: How It Works
+
+*** What the CA Tracks Automatically
+
+OpenSSL's `ca` command (used by `just
+intermediate-issue-cert`) maintains the CA database
+automatically. The relevant files are declared in
+`intermediate-ca/openssl.cnf`:
+
+- *index.txt*: One line per issued certificate,
+  with status flag, expiry, revocation date (if
+  any), serial number, filename, and subject DN.
+  Status flags: `V` = valid, `R` = revoked,
+  `E` = expired.
+- *serial*: The next serial number to use. OpenSSL
+  increments it after each issuance.
+- *newcerts/<serial>.pem*: A copy of every issued
+  certificate, named by serial number.
+
+Inspect a specific serial:
+#+begin_src bash
+openssl ca -config intermediate-ca/openssl.cnf \
+  -status 1001
+#+end_src
+
+The `index.txt` file is tab-separated. Read it
+directly for a fast overview of CA activity.
+
+*** Knowing When to Revoke
+
+The CA does *not* tell you when to revoke.
+Revocation is policy-driven, triggered by events
+outside the CA:
+
+- A private key is lost, leaked, or stored on
+  hardware that was disposed of
+- The person or service the cert was issued to no
+  longer needs it (employee leaves, server
+  decommissioned)
+- The cert was issued in error (wrong CN, wrong
+  validity, wrong key usage)
+- The issuing CA itself is compromised (in which
+  case you revoke everything and re-issue from a
+  new root)
+
+The `index.txt` file tells you *what was signed*,
+not *who owns it*. For operational PKI, you need
+an inventory outside the CA database that records:
+
+- Who requested each certificate
+- What system or service uses it
+- Who to contact when it expires or needs
+  revocation
+- The purpose and authorization for issuance
+
+Keep this inventory in the audit trail. See
+[[#audit-trail][Audit Trail]] for the recommended format.
+
+For tracking expiry (related but distinct from
+revocation), a periodic job can scan `newcerts/`
+and warn 30/60/90 days before expiration:
+
+#+begin_src bash
+for cert in intermediate-ca/newcerts/*.pem; do
+  END=$(openssl x509 -in "$cert" -noout -enddate \
+    | cut -d= -f2)
+  echo "$END  $cert"
+done | sort
+#+end_src
+
+*** How Revocation Mechanisms Work
+
+A revocation is a CA-signed statement: "serial
+number X, issued by me, should no longer be
+trusted, as of date Y, for reason Z."
+
+Two delivery mechanisms exist:
+
+**** CRL (Certificate Revocation List)
+
+The mechanism wjmca currently uses:
+
+1. `just intermediate-revoke <cert>` marks the
+   entry in `index.txt` with status `R` and
+   records the revocation date. The deployed
+   certificate itself does not change—the CA
+   cannot reach out and modify copies already
+   in use.
+2. `just intermediate-gen-crl` produces a signed
+   list of all currently-revoked serials, with a
+   `nextUpdate` field (default: 30 days per
+   the `default_crl_days` setting in
+   `openssl.cnf`).
+3. Publish the CRL where relying parties can
+   fetch it (typically an HTTP URL). For clients
+   to find it automatically, the issued
+   certificate must contain a
+   `crlDistributionPoints` extension pointing
+   there.
+
+⚠️ *Current gap*: the `v3_end_entity` section in
+`intermediate-ca/openssl.cnf` does *not* include
+`crlDistributionPoints`. Certificates issued today
+do not tell clients where to look for the CRL. If
+revocation enforcement matters, add a CDP URL to
+the config before issuing additional certificates.
+
+Inspect a CRL:
+#+begin_src bash
+openssl crl \
+  -in intermediate-ca/crl/intermediate-ca.crl \
+  -noout -text
+#+end_src
+
+**** OCSP (Online Certificate Status Protocol)
+
+Real-time, per-certificate status query. The
+client asks an OCSP responder "is serial X still
+valid?" and receives a signed yes/no/unknown
+response.
+
+The `openssl.cnf` already defines an `[ocsp]`
+section for issuing an OCSP signing certificate,
+but no responder is running. Setting up OCSP
+requires:
+
+1. Issuing an OCSP signing certificate from the
+   intermediate CA
+2. Running `openssl ocsp` as a daemon (or a
+   dedicated tool like `openca-ocspd`)
+3. Adding an `authorityInfoAccess` extension to
+   issued certs pointing to the OCSP responder
+   URL
+
+**** OCSP Stapling
+
+A modern variant: the *server* periodically
+fetches its own OCSP response and includes
+("staples") it in the TLS handshake. Clients no
+longer phone home for revocation checks. This is
+the dominant pattern on the public web today.
+
+*** Browser and OS Revocation Handling
+
+The honest answer is that CRLs and OCSP largely
+*do not work* at internet scale. The major
+browsers and operating systems route around them.
+
+- *Chrome*: Disabled standard OCSP checks years
+  ago. Uses *CRLSets*—a small curated list of
+  high-priority revocations pushed via the
+  browser update mechanism. Most revocations of
+  low-volume certs are simply not enforced.
+- *Firefox*: Uses *CRLite*, a compressed
+  (Bloom-filter-based) snapshot of every revoked
+  WebPKI cert, pushed to clients periodically.
+  Falls back to OCSP in some modes.
+- *Safari, macOS, iOS*: Uses *Valid*, Apple's
+  push-delivered revocation data system, plus
+  OCSP with soft-fail.
+- *Windows, Edge*: Still does CRL + OCSP with
+  soft-fail, plus Microsoft's
+  `disallowedcert.stl` push list for emergency
+  revocations.
+
+*Soft-fail* is the systemic weakness: if the OCSP
+responder is unreachable, virtually every client
+treats the certificate as valid. An attacker with
+a stolen key can simply block OCSP traffic. This
+is why the major browsers moved to push-based
+mechanisms (CRLSets, CRLite, Valid).
+
+*Short-lived certificates* are increasingly the
+preferred answer for the public web. Let's
+Encrypt issues 90-day certs; proposals exist to
+drop that to days. If a certificate lives only 7
+days, revocation matters far less.
+
+*** Practical Revocation Strategy for wjmca
+
+For an internal CA, the browser machinery above
+mostly does not apply—your relying parties are
+your own services and devices. Practical options:
+
+1. *CRL on an internal HTTP endpoint*. The
+   baseline. Add `crlDistributionPoints` to
+   `v3_end_entity`, host the CRL on an internal
+   web server, regenerate weekly via cron and
+   immediately after every revocation. Works
+   with OpenSSL, curl, most TLS servers.
+2. *OCSP responder*. Stronger (real-time), but
+   more operational overhead. Worth it if you
+   have certificates protecting high-value
+   services that need immediate revocation.
+3. *Short-lived certificates*. Issue end-entity
+   certs with 7–30 day validity and automate
+   renewal. Sidesteps revocation almost entirely
+   for routine cases. Requires reliable issuance
+   automation.
+4. *Rotate the intermediate*. For a small
+   organization, if something bad enough
+   happens, destroying the intermediate CA and
+   re-issuing all active certs from a new
+   intermediate may be simpler than running CRL
+   or OCSP infrastructure.
+
+For most wjmca deployments today, option 1 (CRL
+on HTTP, weekly regeneration) is the standard
+baseline. Option 3 is the direction the industry
+is moving.
+
 * Security Policies
 
 ** Key Protection

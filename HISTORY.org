@@ -539,9 +539,13 @@ approach was different: they designed custom hardware
 for encryption/signing and stored key material in
 physically isolated vaults, protected by armed guards.
 
-See CryptoMuseum.com for fascinating hardware from
-this era (CRAY computers running crypto, specialized
-secure telephones, etc.).
+See [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+for fascinating hardware from this era—CRAY
+computers running crypto, NSA's KW-7 and KL-7
+machines, the STU-III secure telephone line, the
+Soviet Fialka, and the curious Swiss/German
+"Schlüsselgerät 41" that survived as a Wehrmacht
+field cipher.
 
 ** The Internet PKI is Born (1990s)
 
@@ -556,6 +560,463 @@ As the internet exploded, a commercial PKI emerged:
 
 By 1995, HTTPS was standard. Users saw the green
 padlock and trusted their connection to websites.
+
+* The Crypto Wars of the 1990s: When Mathematics Became Munitions
+
+** Cryptography as a Weapon
+
+For most of the 20th century, the U.S. government
+classified cryptography as a munition under the
+*International Traffic in Arms Regulations* (ITAR).
+This wasn't metaphor. Strong cryptographic software
+was legally a *weapon*, in the same regulatory
+category as tanks, missiles, and fighter jets.
+
+In practice this meant:
+- You could not export software with strong
+  cryptography from the United States
+- "Export" included publishing on the internet (a
+  foreign national might read it)
+- Violations carried penalties up to 10 years in
+  prison and $1 million in fines
+- Domestic versions of software could use strong
+  crypto; export versions had to use weakened
+  variants (typically 40-bit keys)
+
+The rationale: signals intelligence agencies (NSA,
+GCHQ) wanted to maintain their ability to read
+foreign communications. Strong civilian
+cryptography threatened that capability.
+
+By the early 1990s, the policy was straining
+against reality. The internet was global. Software
+was global. The line between "domestic" and "export"
+cryptography was becoming impossible to police.
+
+** Phil Zimmermann and PGP
+
+In June 1991, Phil Zimmermann—a software engineer
+and anti-nuclear activist—released *PGP* (Pretty
+Good Privacy). PGP was a free email encryption
+program based on RSA. It was, by U.S. government
+standards, a munition.
+
+Zimmermann didn't sell PGP. He didn't directly
+publish it abroad. He gave a copy to a friend who
+posted it to a Usenet bulletin board, from which it
+spread—within days—across the world.
+
+In 1993, the U.S. Customs Service opened a
+criminal investigation against Zimmermann for
+"munitions export without a license." The
+investigation lasted three years. Zimmermann faced
+a possible federal prison sentence simply for
+writing software. The case was finally dropped in
+January 1996 without charges being filed.
+
+Why did PGP matter so much? It gave ordinary
+people—journalists, dissidents, activists, lovers—
+the ability to communicate with the same
+cryptographic strength as governments. For the
+first time, encryption was *democratized*. The U.S.
+government viewed this as a national security
+threat.
+
+** The Book Trick: When Software Became Literature
+
+In 1995, while still under criminal investigation,
+Zimmermann did something extraordinary. He took the
+entire source code of PGP and *published it as a
+book*: *"PGP Source Code and Internals"*, MIT
+Press, 1995. Just under 900 pages of printed C
+code, with line numbers, ready to be scanned and
+compiled.
+
+Why? Because of the First Amendment.
+
+The U.S. government regulated *software* as a
+munition. But *books* were protected speech. A
+book could not be export-controlled. You could buy
+"PGP Source Code and Internals" at any bookstore
+and ship it anywhere in the world, perfectly
+legally.
+
+The book was printed in OCR-friendly typography on
+high-quality paper. Outside the U.S., a group of
+volunteers led by Norwegian cryptographer Ståle
+Schumacher Ytteborg organized the *PGPi Scanning
+Project*: they bought the book, scanned every
+page, OCR'd the result, fixed the errors,
+recompiled the source, and released *PGP
+International*—a fully legal, non-U.S. version of
+strong cryptography.
+
+It was an act of legal jujitsu. Mathematics on a
+hard drive was a weapon. The same mathematics on
+paper was literature.
+
+The technique was repeated. *Applied Cryptography*
+by Bruce Schneier (1996) included extensive source
+code in print form. When Schneier wanted to
+distribute the code on a floppy disk, the disk
+required an export license—but the book did not.
+
+** The "Munitions" T-Shirt
+
+In a related protest, cryptographer Adam Back
+printed a three-line Perl implementation of RSA on
+T-shirts:
+
+#+begin_src perl
+#!/bin/perl -sp0777i<X+d*lMLa^*lN%0]dsXx++lMlN/dsM0<j]dsj
+$/=unpack('H*',$_);$_=`echo 16dio\U$k"SK$/SM$n\EsN0p[lN*1
+lK[d2%Sa2/d0$^Ixp"|dc`;s/\W//g;$_=pack('H*',/((..)*)$/)
+#+end_src
+
+Wearing the T-shirt outside the United States was,
+by the letter of the law, exporting a munition.
+The absurdity of the regulation became impossible
+to ignore.
+
+** Bernstein v. United States
+
+In parallel, Daniel J. Bernstein—then a graduate
+student at Berkeley—wanted to publish his
+encryption algorithm *Snuffle*. The State
+Department told him he needed an export license,
+and that the source code itself, even on a
+webpage, would constitute illegal export.
+
+Bernstein sued the government. The case became
+*Bernstein v. United States* (filed 1995). In
+1999, the Ninth Circuit Court of Appeals ruled, in
+a landmark decision, that:
+
+#+begin_quote
+Source code is speech protected by the First
+Amendment.
+#+end_quote
+
+This ruling, combined with *Junger v. Daley*
+(Sixth Circuit, April 2000), effectively ended the
+legal basis for ITAR cryptography restrictions on
+published source code.
+
+** The Crypto Wars End (Mostly)
+
+In January 2000, the Clinton administration
+substantially relaxed export controls on
+cryptography. Crypto was moved from the State
+Department's ITAR list to the Commerce
+Department's EAR list, with most restrictions
+eliminated.
+
+Strong cryptography became legal to export. The
+Crypto Wars, as they were called, were over.
+
+Or were they?
+
+The same battles return in new forms:
+- *Apple v. FBI* (2016): Government demands a
+  backdoor into iPhone encryption
+- *Going Dark* debates: Law enforcement claims
+  encryption prevents investigations
+- *EARN IT Act* (U.S.), *Online Safety Bill* (UK),
+  *Chat Control* (EU): Modern attempts to weaken
+  or compel access to end-to-end encryption
+
+The fundamental question of the 1990s remains
+unresolved: *should ordinary citizens have access
+to cryptography that governments cannot break?*
+
+** The Legacy
+
+PGP's descendants—*GnuPG* (GPG, the free
+implementation written by Werner Koch in
+Germany), signed git commits, the Signal Protocol,
+age, sequoia-PGP—all owe their existence to the
+legal precedents won in the 1990s. So does much of
+public web cryptography.
+
+When you sign a commit with `git commit -S`, you
+are using a system that exists because Zimmermann
+was willing to risk federal prison, and because a
+Norwegian volunteer organized a project to scan
+900 pages of code in 1995.
+
+For *wjmca*, the lesson is that *open cryptography
+infrastructure is a hard-won right, not a given*.
+Building an internal CA today is trivial because
+strong tools (OpenSSL, GPG, Yubikey) are legally
+unrestricted. That wasn't true thirty years ago.
+The `pass` utility we use for managing CA
+passphrases is itself a GPG wrapper—a direct
+descendant of Zimmermann's work.
+
+* The Browser Encryption Story
+
+** Before HTTPS: The Plain-Text Web
+
+The early web (1991–1994) had no encryption. Every
+HTTP request, every form submission, every
+password traveled in clear text across the
+internet. Anyone with network access at any hop
+could read it.
+
+This was tolerable when the web was mostly
+academic. It became intolerable when commerce
+arrived.
+
+** Netscape Invents SSL (1994–1996)
+
+In 1994, Netscape Communications was racing to
+make the web commercially viable. The company
+recognized that no one would type a credit card
+number into a form that anyone could intercept.
+
+Netscape's solution: add a cryptographic layer
+underneath HTTP. They called it *SSL* (Secure
+Sockets Layer).
+
+The history was rocky:
+
+- *SSL 1.0* (1994): Internal Netscape design,
+  never released. Reviewed by external
+  cryptographers and found to have serious flaws.
+- *SSL 2.0* (February 1995): First public
+  release, shipped in Netscape Navigator 1.1.
+  Within months, cryptographers found weaknesses
+  (truncation attacks, weak MAC construction).
+- *SSL 3.0* (November 1996): Complete redesign
+  with input from Paul Kocher. Much stronger.
+  Became the foundation of every secure web
+  connection for the next decade.
+
+The IETF then took SSL and standardized it as
+*TLS*:
+
+- *TLS 1.0* (1999, RFC 2246): Essentially SSL 3.1
+- *TLS 1.1* (2006): Mitigation for CBC attacks
+- *TLS 1.2* (2008): Modern cipher suites, AEAD
+- *TLS 1.3* (2018, RFC 8446): Complete redesign,
+  removed legacy crypto, faster handshakes
+
+By 2020, all SSL versions and TLS 1.0/1.1 were
+deprecated. The padlock you see today is almost
+certainly TLS 1.2 or 1.3.
+
+** Export-Grade Crypto: The 40-bit Web
+
+Because of ITAR (see Crypto Wars above), Netscape
+had to ship two versions of every browser:
+
+- *U.S. domestic version*: Strong 128-bit crypto
+- *International export version*: Weakened 40-bit
+  crypto (breakable by determined attackers
+  within hours)
+
+The export version's weakened ciphers became part
+of the SSL/TLS protocol itself, identified as
+"EXPORT" cipher suites. They lurked in TLS
+implementations for *twenty years* after they
+became legal to remove.
+
+In 2015, two attacks demonstrated the cost:
+
+- *FREAK* (Factoring RSA Export Keys): Tricked
+  servers into using export-grade RSA keys, then
+  factored them in hours on a single machine.
+  Affected millions of websites.
+- *Logjam*: Same idea applied to Diffie-Hellman
+  key exchange. Used to attack TLS connections in
+  the wild and likely exploited by state-level
+  adversaries.
+
+Both attacks worked because of decisions made
+under 1990s export controls. The Crypto Wars had a
+software half-life of two decades.
+
+** The CA Business is Born
+
+Selling certificates turned out to be
+extraordinarily profitable. To use HTTPS, you
+needed a certificate signed by a CA in the
+browser's trust store. To get into the trust
+store, you needed to pass an audit. Once you were
+in, you could charge whatever the market would
+bear.
+
+- *VeriSign* (founded 1995, spun off from RSA Data
+  Security) became the dominant CA. At its peak,
+  certificates sold for $400–$1500/year.
+- *Thawte* (Mark Shuttleworth's South African CA,
+  founded 1995, acquired by VeriSign in 1999—the
+  sale funded Shuttleworth's trip to space)
+  followed a similar trajectory.
+- Margins were estimated at over 90%. The actual
+  cost of issuing a certificate—running OpenSSL,
+  signing a CSR—was pennies.
+
+For nearly two decades, the CA industry was a
+profitable oligopoly of about a dozen companies
+selling what was essentially a digital signature
+service with a thin layer of identity
+verification.
+
+** The Failures of the CA System
+
+The CA model had a structural problem: *any CA in
+your browser's trust store can issue a certificate
+for any site*. There are about 100 trusted CAs in
+modern browsers. A compromise of any one of them
+breaks security for everyone.
+
+Real incidents:
+
+- *2011: Comodo* breach. A reseller's account was
+  compromised; attackers issued certs for Gmail,
+  Hotmail, Skype, Yahoo. Attributed to the
+  Iranian government.
+- *2011: DigiNotar* (Dutch CA) was fully
+  compromised. Attackers issued ~500 fraudulent
+  certs, including for `*.google.com`, used to
+  surveil Iranian dissidents. DigiNotar went
+  bankrupt within weeks.
+- *2015–2017: Symantec* (then owner of VeriSign)
+  was found to have mis-issued thousands of test
+  certificates, including for `google.com`. After
+  repeated incidents, Google forced Symantec to
+  divest its CA business; its certificates were
+  eventually distrusted entirely.
+- *2015: WoSign / StartCom*. Chinese CAs caught
+  backdating certificates and other
+  irregularities. Removed from browser trust
+  stores.
+
+Each incident demonstrated that the trust model
+was fragile. Any of 100 CAs could be coerced,
+breached, or simply incompetent.
+
+** Certificate Transparency
+
+After the DigiNotar incident, Google proposed
+*Certificate Transparency* (CT), standardized in
+RFC 6962 (2013). The idea is elegant:
+
+Every certificate ever issued by a public CA must
+be logged in a public, append-only log. Browsers
+refuse to trust certificates that aren't in the
+log. Site owners can monitor logs to detect rogue
+certificates for their own domains.
+
+This doesn't prevent a malicious CA from issuing
+a bad certificate, but it guarantees the bad
+certificate becomes *public knowledge* within
+hours, so it can be detected and revoked.
+
+Tools like `crt.sh` let anyone search the CT logs.
+If a certificate exists for your domain that you
+didn't authorize, you know within hours.
+
+** Let's Encrypt and the Free HTTPS Revolution
+
+In 2015, the *Internet Security Research Group*
+(funded by Mozilla, EFF, Akamai, Cisco) launched
+*Let's Encrypt*—a free, automated certificate
+authority.
+
+Two innovations made it work:
+
+1. *Free*: No commercial revenue, so no friction
+   to adoption.
+2. *ACME protocol*: A standardized API for
+   automated certificate issuance and renewal.
+   Software like `certbot` could request,
+   validate, install, and renew certificates with
+   zero human intervention.
+
+The HTTPS adoption curve broke vertically:
+- 2014: ~30% of web traffic was HTTPS
+- 2018: ~70%
+- 2023: ~95%
+
+Let's Encrypt single-handedly killed the
+$1500/year cert market for ordinary domain
+validation. By 2020 it was issuing ~3 million
+certificates per day.
+
+** The Padlock and the UX of Trust
+
+Browsers needed a way to communicate "this
+connection is secure" to ordinary users. The
+*padlock icon* appeared in Netscape 2.0 (1995)
+and became universal.
+
+But what does the padlock actually mean? Over the
+decades, browsers tried various conventions:
+
+- *Padlock + URL* (1995–2005): "Connection is
+  encrypted to *someone*"
+- *Green padlock + name* (2005–2019, "EV
+  certificates"): "Connection encrypted and the
+  organization name has been verified by the CA"
+- *Padlock only* (2019–now): "Connection is
+  encrypted; identity claims are not surfaced in
+  the UI"
+
+The decline of Extended Validation certificates
+is instructive. EV certs cost $200–$1000/year and
+required identity verification. Browsers
+displayed the organization name in green. Studies
+eventually showed that users *did not notice* the
+difference, and that phishers could buy EV certs
+for nearly-identical company names. The visual
+distinction was quietly removed.
+
+Modern browsers go the opposite direction: they
+warn loudly when HTTP is *not* encrypted, rather
+than celebrating when it is. The default
+expectation flipped.
+
+** TLS 1.3 and the Future
+
+TLS 1.3 (2018) was a structural cleanup:
+- Removed RSA key exchange (only forward-secret
+  algorithms: ECDHE)
+- Removed CBC mode, RC4, MD5, SHA-1
+- Encrypted more of the handshake (less metadata
+  visible to network observers)
+- Faster: 1-RTT handshakes instead of 2-RTT
+- 0-RTT resumption for repeat connections
+
+Work in progress:
+- *Encrypted Client Hello (ECH)*: Hides the
+  server name (SNI) from network observers,
+  preventing ISP-level censorship of specific
+  sites on shared hosts.
+- *Post-quantum TLS*: Hybrid key exchange using
+  algorithms like X25519MLKEM768, deployed by
+  Google and Cloudflare from 2024. Defends
+  against the threat of quantum computers
+  breaking ECDH.
+
+** What This Means for wjmca
+
+The public web's PKI is a different world from an
+internal CA, but the lessons transfer:
+
+- *Trust is fragile*: any CA in your trust store
+  can betray you. Keep your trust store small.
+- *Automation enables hygiene*: short-lived
+  certificates only work with automated renewal.
+  Internal CAs benefit from the same.
+- *Public visibility helps*: Certificate
+  Transparency works for the public web. An
+  internal equivalent (an audit log of all
+  issuance) is the same idea at smaller scale.
+- *The padlock is not enough*: end users don't
+  read security UI carefully. Build systems that
+  fail safely, not systems that warn users.
 
 * The Evolution of Key Algorithms (2000s-2020s)
 
@@ -807,8 +1268,10 @@ decades of Nordic security expertise.
 
 ** Resources: Swedish Cryptography History
 
-- **CryptoMuseum.com**: Sections on Swedish WWII
-  codebreaking and Arne Beurling
+- [[https://www.cryptomuseum.com][CryptoMuseum.com]]:
+  Sections on Swedish WWII codebreaking, the
+  Siemens/Lorenz T52, Arne Beurling's reconstruction,
+  and Hagelin's mechanical cipher line
 - **Electrospaces.net**: Swedish Cold War telecom
   and secure communications (SÄPO networks, FRA
   intelligence)
@@ -959,9 +1422,12 @@ networks. Examples:
   encryption keys were needed, armed couriers
   transported them in sealed briefcases
 
-See Electrospaces.net and CryptoMuseum.com for
-details on secure telephones like the Siemens T311
-and Soviet analogs.
+See [[https://electrospaces.net][Electrospaces.net]]
+and [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+for details on secure telephones like the Siemens
+T311, the U.S. STU-III, the "Red Phone"
+Washington–Moscow Hotline (which was actually a
+teletype, not a phone), and Soviet analogs.
 
 ** Why This Still Applies
 
@@ -979,6 +1445,380 @@ security thinking:
 If the Cold War era taught us anything, it's that
 network-connected systems are inherently vulnerable.
 An offline root CA is a throwback to that wisdom.
+
+* Hidden Stories: Bugs, Backdoors, and Broken Pads
+
+The history of cryptography is also the history of
+its failures—often catastrophic, sometimes darkly
+funny, occasionally so audacious they read like
+fiction. These stories matter to wjmca because they
+reveal what protection looks like when it *fails*,
+and why we make the design choices we do.
+
+The single best public archive of this material is
+[[https://www.cryptomuseum.com][CryptoMuseum.com]],
+a Dutch-run encyclopedia maintained by Paul Reuvers
+and Marc Simons since 1996. Most of what follows has
+dedicated exhibits there with photographs, technical
+documentation, and primary sources. It is worth
+losing an afternoon to.
+
+** PROJECT GUNMAN: The Typewriter Bugs (1984)
+
+In the summer of 1984, the NSA executed *Project
+GUNMAN*. On paper it was a routine equipment
+upgrade: every piece of office equipment from the
+U.S. Embassy in Moscow and the consulate in
+Leningrad was crated up and flown back to the
+United States. Replacement equipment was flown in.
+Nothing extraordinary—except that GUNMAN was
+secretly a search.
+
+NSA technical security officers had received
+intelligence (later attributed to a French source)
+that the Soviets had compromised office equipment
+at the embassy. They wanted every component
+inspected.
+
+After months of work, X-ray analysis at Fort Meade
+turned up something extraordinary: *16 IBM Selectric
+II and III typewriters* contained sophisticated,
+miniaturized electronic bugs.
+
+The bugs were a masterpiece of hardware espionage:
+
+- Hidden inside the metal *comb bar* of the
+  Selectric (the bar that runs across the machine
+  beneath the print element).
+- Used six tiny *magnetometers* to detect the
+  position of the typewriter's "golf ball" as it
+  tilted and rotated to strike each character.
+- Encoded each keystroke as a 4-bit value.
+- Buffered keystrokes and burst-transmitted them
+  by RF to a nearby Soviet listening post.
+- Could be remotely turned on and off by radio
+  command.
+- Drew power directly from the typewriter's mains.
+- Were so well-machined that they appeared, on
+  casual inspection, to be part of the original
+  IBM design.
+
+The bugs had been in place since approximately
+*1976*. For eight years, the Soviets had read every
+typed document at the U.S. Embassy—classified
+cables, intelligence reports, diplomatic
+correspondence. The plaintext.
+
+The lesson is sobering: *no software security
+matters if the hardware itself is compromised*.
+This is the deepest justification for keeping a
+root CA on hardware that has never been
+network-connected, and for protecting keys in
+inspectable devices like Yubikeys rather than in
+software on general-purpose computers.
+
+See [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+— Selectric bug exhibit with full technical
+analysis and disassembly photos.
+
+** The Thing: The Bug That Needed No Battery (1945–1952)
+
+In August 1945, with WWII just ended, a Soviet
+youth organization presented the U.S. Ambassador in
+Moscow with a hand-carved wooden replica of the
+*Great Seal of the United States*. It was a "gift
+of friendship" between wartime allies. The
+ambassador hung it on the wall behind his desk.
+
+It stayed there for *seven years*.
+
+Inside was a passive electronic bug designed by
+*Léon Theremin*—the same Soviet engineer who
+invented the eponymous musical instrument. Theremin
+designed the device while imprisoned in a
+*sharashka*, a Soviet labor camp for engineers
+condemned to forced technical work.
+
+The bug, known to U.S. intelligence as *"The
+Thing"*, had no batteries, no active electronics,
+and almost no metal parts. It consisted of a tuned
+cavity and a thin metal antenna. When Soviet agents
+in a nearby building aimed a radio beam of the
+right frequency at the embassy wall, the cavity
+re-emitted the beam modulated by sound vibrations
+in the ambassador's office.
+
+It was, decades before the term existed, *passive
+RFID*. The Soviets could turn it on and off by
+turning their radio beam on and off. When the beam
+was off, the device was a piece of wood.
+Electronically invisible.
+
+The Thing was discovered in 1952 only by accident,
+when a British radio operator monitoring an
+unrelated frequency picked up American voices. It
+took months more to track the signal to the Great
+Seal. Theremin received the Stalin Prize for the
+work. He never became famous in his lifetime for
+the bug, though he is now considered the father of
+covert listening devices and of passive RF
+backscatter—the principle behind every modern RFID
+card and contactless payment.
+
+The lesson: *adversaries have decades to develop
+techniques you have never thought of*. The Thing
+predated commercial RFID by half a century.
+
+See [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+— "The Thing" exhibit, with photographs, schematics,
+and reconstruction notes.
+
+** Operation Rubicon: The Backdoored Crypto Company (1970–2018)
+
+In 1970, the CIA and West Germany's BND quietly
+purchased *Crypto AG*, a Swiss company founded by
+Swedish cryptographer Boris Hagelin. From that day
+until 2018, the CIA and BND secretly *owned the
+company that sold cryptographic machines to roughly
+120 governments*.
+
+The machines were deliberately weakened. For half a
+century, the United States and West Germany read
+the diplomatic and military traffic of:
+
+- Iran (during the 1979 hostage crisis and after)
+- Argentina (during the Falklands War; intelligence
+  passed to Britain)
+- Libya (used to attribute the 1986 Berlin
+  discotheque bombing)
+- Egypt, Syria, Saudi Arabia
+- The Vatican
+- Italy, Spain, and several NATO allies
+- About 60 other countries
+
+The operation, codenamed first *Thesaurus* and
+later *Rubicon*, was one of the most successful
+signals intelligence operations in history. The
+target governments believed their machines were
+neutral Swiss engineering—the same standard their
+banks relied on. They were paying their
+eavesdroppers for the privilege of being
+eavesdropped.
+
+It was not revealed until February 2020, when a
+joint investigation by the *Washington Post*,
+German *ZDF*, and Swiss *SRF* published the story
+based on declassified internal CIA history.
+
+Boris Hagelin himself—the Swedish founder, an
+intersection point with the
+[[*Arne Beurling and the Legendary Cryptanalysis][Swedish cryptography]]
+tradition described earlier—was aware of at least
+some of the operation. He had been cultivated by
+*William Friedman* of the NSA from the 1950s
+onward. The "gentleman's agreement" between Hagelin
+and the United States—that fully strong machines
+would be sold only to specific NATO countries—was
+the seed that grew into full hidden ownership a
+decade later.
+
+The lesson: *trust in commercial cryptography is
+trust in the supply chain*. Open-source software
+and publicly audited algorithms (the OpenSSL and
+Ed25519 we use in wjmca) are not ideological
+preferences. They are the only known defense
+against this exact attack.
+
+See [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+— extensive coverage of Crypto AG, the Hagelin
+machine family (C-36, C-38/M-209, C-52, CX-52,
+H-460), and the Rubicon documents.
+
+** VENONA: When the Unbreakable Cipher Broke (1943–1980)
+
+The Soviet KGB and GRU used *one-time pads* for
+their most sensitive communications during and
+after WWII. The one-time pad is the only cipher
+that is *mathematically* unbreakable—if the key is
+truly random, used exactly once, and never reused,
+the ciphertext reveals nothing whatsoever.
+
+But during the chaos of wartime production, some
+pages of Soviet one-time pads were *duplicated*.
+The same key bytes were used for two different
+messages. This is the one thing you cannot do with
+a one-time pad. Two messages encrypted with the
+same key can be XOR'd together to eliminate the
+key entirely, leaving only plaintext-against-
+plaintext—a difficult but solvable problem.
+
+In 1943, U.S. Army cryptanalysts at *Arlington
+Hall*, led later by *Meredith Gardner*, began
+noticing statistical anomalies in intercepted
+Soviet diplomatic cables. Slowly, painstakingly,
+over years, they began to break partial messages.
+
+The project, called *VENONA*, ran from 1943 to
+1980. It exposed:
+
+- Julius and Ethel Rosenberg as Soviet atomic spies
+- Klaus Fuchs as the source of detailed atomic
+  bomb design information passed to the USSR
+- Donald Maclean and the rest of the Cambridge Five
+- Hundreds of other Soviet agents in U.S.
+  government, science, and industry
+
+VENONA was kept secret until 1995. For 50 years,
+the U.S. government chose *not to prosecute* many
+of the spies VENONA had identified—because
+revealing the break would compromise ongoing
+intelligence. The Rosenbergs were executed in 1953;
+the VENONA evidence against them was not made
+public until decades later.
+
+The lesson: *perfect mathematics requires perfect
+operations*. A one-time pad reused is no longer a
+one-time pad. In modern terms: an Ed25519 nonce
+reused leaks the private key. A serial number
+counter that resets leaks issuance patterns. The
+algorithm is only as strong as the discipline
+around it. This is why wjmca's `index.txt` and
+`serial` files are not implementation details—
+they are part of the security model.
+
+** TEMPEST and Van Eck Phreaking
+
+In 1943, a Bell Labs engineer noticed something
+strange while testing a U.S. Army Signal Corps
+encryption teleprinter called the *131-B2*. Each
+keystroke produced a faint spike on a remote
+oscilloscope across the laboratory—and the spike
+revealed the *plaintext* being encrypted. The
+encryption was mathematically perfect. The
+electromagnetic side-channel was not.
+
+This discovery launched a U.S./NATO program
+codenamed *TEMPEST*—the study of compromising
+electromagnetic emanations from cryptographic
+equipment, and the engineering of shielding to
+suppress them. For 30 years, TEMPEST was deeply
+classified. Allied governments built entire
+shielded rooms ("SCIFs") to defeat it. The Soviet
+listening posts around U.S. embassies, including
+the one at the embassy in Moscow, were
+TEMPEST-style emanation collection sites.
+
+Then in 1985, a Dutch researcher named *Wim van
+Eck* published an unclassified paper showing that
+the contents of any CRT computer monitor could be
+reconstructed by picking up its electromagnetic
+emanations from a parked van outside the building.
+Van Eck used about $15 of equipment.
+
+"Van Eck phreaking" became a cultural touchstone—a
+reminder that the boundary between a secure system
+and its environment is leakier than it looks.
+
+Modern variants are extraordinary:
+
+- *Acoustic cryptanalysis*: Researchers at the
+  Weizmann Institute (Shamir, Genkin, Tromer, 2013)
+  extracted 4096-bit RSA keys from a laptop by
+  *listening to the sound of the CPU* with a
+  parabolic microphone from across a room.
+- *Power analysis*: Smartcard PINs and AES keys
+  recovered by measuring power consumption with an
+  oscilloscope.
+- *Cache timing*: Cryptographic keys leaked across
+  shared cloud hardware by measuring how long
+  memory accesses take.
+
+The lesson: *cryptography lives in physical
+hardware*. The Yubikey we use to protect the root
+CA is engineered with TEMPEST-style countermeasures
+(constant-time operations, side-channel resistance,
+shielded silicon) for exactly this reason. So is
+modern OpenSSL, which goes to substantial effort to
+make its RSA and ECDSA implementations
+constant-time.
+
+** The Hagelin Connection to wjmca
+
+Boris Hagelin (1892–1983) deserves a closer look,
+because he is the unexpected Swedish thread that
+runs through all of these stories.
+
+- Born in Russia to Swedish parents, educated at
+  KTH in Stockholm.
+- Took over *Aktiebolaget Cryptograph* in Stockholm
+  in the 1920s.
+- Designed the *C-36* and *C-38* mechanical cipher
+  machines in the 1930s.
+- His *M-209* (the U.S. Army's licensed version of
+  the C-38) became the standard tactical cipher
+  for American forces in WWII. Hundreds of
+  thousands were produced.
+- Made him a millionaire—reputedly the only person
+  before the internet era to become wealthy from
+  cryptography.
+- Moved his company to Switzerland in 1948,
+  renaming it Crypto AG.
+- From the 1950s, cultivated by William Friedman
+  of the NSA, leading eventually to the secret
+  CIA/BND purchase of his company in 1970.
+
+So the Swedish cryptography tradition that produced
+Arne Beurling also produced Boris Hagelin: one a
+mathematician of pure intellect who broke ciphers
+without ever seeing the machine; the other an
+engineer-entrepreneur whose machines were
+themselves secretly broken for fifty years. They
+are two sides of the same coin.
+
+When we say wjmca draws on Nordic security
+traditions—offline isolation, mathematical rigor,
+hardware roots of trust—it is worth remembering
+that Boris Hagelin is part of that tradition too,
+and that his story is a warning. The Yubikey is a
+Swedish device. So was the C-52. The difference is
+that the Yubikey's silicon can be inspected,
+audited, and its firmware reproduced. Hagelin's
+machines could not.
+
+See [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+— the Hagelin section is one of the most thorough
+on the site, with every machine model, original
+patents, and the Rubicon backstory.
+
+** Why These Stories Matter for wjmca
+
+These aren't war stories told for entertainment.
+They map directly to the threat model behind every
+operational choice in wjmca:
+
+- *PROJECT GUNMAN* → trust hardware you can
+  inspect; keep the root offline so it cannot be
+  reached by network attacks; verify supply chain
+  for every critical component.
+- *The Thing* → assume adversaries have techniques
+  you haven't imagined yet; depth in defense, not
+  a single layer.
+- *Operation Rubicon* → use open, auditable
+  cryptographic tools (OpenSSL, GPG, Ed25519); do
+  not depend on a single vendor's promise.
+- *VENONA* → flawless math is undone by flawed
+  process; document procedures, automate them,
+  audit the audit logs; nonces and serials are
+  load-bearing.
+- *TEMPEST* → keep the root CA in a controlled
+  physical environment; use hardware (Yubikey)
+  engineered against side-channel attacks.
+
+The principles we apply in wjmca are not
+arbitrary. They are the residue of seventy years
+of failures—often discovered the hard way, often
+classified for decades, and now thankfully public
+enough to learn from.
 
 * Modern PKI: Trust in a Broken Internet
 
@@ -1066,21 +1906,59 @@ military cryptography.
 
 |  Year | Event                                |
 |-------+--------------------------------------|
+|  1943 | VENONA project begins (Arlington     |
+|       | Hall); TEMPEST emanation effect      |
+|       | discovered at Bell Labs              |
+|  1945 | "The Thing" planted in U.S.          |
+|       | Ambassador's office (Moscow)         |
 |  1946 | ENIAC; modern computing begins       |
 |  1949 | Information Theory (Shannon);        |
 |       | foundation for cryptography          |
+|  1952 | "The Thing" discovered behind the    |
+|       | Great Seal                           |
+|  1970 | CIA/BND secretly purchase Crypto AG  |
+|       | (Operation Thesaurus → Rubicon)      |
+|  1976 | Soviet bugs installed in IBM         |
+|       | Selectric typewriters at U.S.        |
+|       | Embassy in Moscow                    |
 |  1977 | RSA published; DES adopted           |
-|  1985 | Elliptic Curve Cryptography proposed |
+|  1984 | NSA's Project GUNMAN discovers the   |
+|       | Selectric typewriter bugs            |
+|  1985 | Elliptic Curve Cryptography proposed;|
+|       | Van Eck publishes CRT phreaking      |
 |  1988 | X.509 standard published             |
-|  1995 | SSL/HTTPS standardized               |
+|  1991 | PGP released by Phil Zimmermann      |
+|  1993 | U.S. opens criminal investigation    |
+|       | of Zimmermann                        |
+|  1995 | SSL 2.0; VeriSign founded;           |
+|       | "PGP Source Code" book published;    |
+|       | Bernstein v. United States filed;    |
+|       | VENONA declassified                  |
+|  1996 | SSL 3.0; Zimmermann investigation    |
+|       | dropped                              |
+|  1999 | TLS 1.0 standardized;                |
+|       | Bernstein wins at 9th Circuit        |
+|  2000 | U.S. crypto export controls relaxed; |
+|       | Junger v. Daley confirms source code |
+|       | is protected speech                  |
 |  2001 | AES adopted (replaces DES)           |
 |  2007 | YubiKey released                     |
-|  2011 | EdDSA (Ed25519) proposed             |
+|  2008 | TLS 1.2 standardized                 |
+|  2011 | EdDSA (Ed25519) proposed;            |
+|       | DigiNotar and Comodo breaches        |
 |  2013 | Snowden revelations;                 |
-|       | Certificate Transparency emerges     |
-|  2015 | Let's Encrypt launches (ACME)        |
-| 2020s | Ed25519 becomes mainstream;          |
-|       | HSMs ubiquitous                      |
+|       | Certificate Transparency (RFC 6962)  |
+|  2015 | Let's Encrypt launches (ACME);       |
+|       | FREAK and Logjam attacks expose      |
+|       | residual export-grade crypto         |
+|  2018 | TLS 1.3 standardized (RFC 8446)      |
+|  2020 | Operation Rubicon (Crypto AG)        |
+|       | revealed by Washington Post / ZDF /  |
+|       | SRF                                  |
+| 2020s | Ed25519 mainstream; HSMs ubiquitous; |
+|       | HTTPS reaches ~95% of web traffic    |
+|  2024 | Hybrid post-quantum TLS deployed     |
+|       | by Google and Cloudflare             |
 
 * Recommended Reading & Resources
 
@@ -1098,15 +1976,32 @@ military cryptography.
 
 ** Websites
 
-- **CryptoMuseum.com** — Physical artifacts from
-  cryptography history (Enigma, Cold War devices,
-  modern hardware)
-- **Electrospaces.net** — Technical details on Cold
-  War secure communications, radio, satellites
-- **RFC 5280** — X.509 standard (technical, but
+- [[https://www.cryptomuseum.com][CryptoMuseum.com]]
+  — The single best public archive of cryptographic
+  hardware history. Maintained by Paul Reuvers and
+  Marc Simons since 1996. Highlights worth a deep
+  dive:
+  - *Enigma family* — every variant, including the
+    Naval M4 and the rare Abwehr G-312
+  - *Lorenz SZ40/42* — the "Tunny" machine broken
+    by Colossus at Bletchley
+  - *Siemens T52* — the machine Beurling
+    reconstructed without ever seeing it
+  - *The Thing* — Theremin's Great Seal bug
+  - *Selectric bug* — Project GUNMAN's discovery
+  - *Hagelin C-36, C-38/M-209, CX-52* — the
+    machines behind Operation Rubicon
+  - *Fialka* — the Soviet equivalent of Enigma,
+    still classified by Russia
+  - *KW-7, KL-7, STU-III* — American Cold War
+    secure communications
+- [[https://electrospaces.net][Electrospaces.net]]
+  — Technical details on Cold War secure
+  communications, the Hotline, satellite SIGINT
+- *RFC 5280* — X.509 standard (technical, but
   foundational)
-- **NIST SP 800-32** — PKI guidelines
-- **Yubico documentation** — YubiKey technical specs
+- *NIST SP 800-32* — PKI guidelines
+- *Yubico documentation* — YubiKey technical specs
   and use cases
 
 ** Documentaries
